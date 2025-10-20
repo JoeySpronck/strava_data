@@ -6,6 +6,8 @@ from sklearn.preprocessing import StandardScaler
 import numpy as np
 plt.rc('axes', axisbelow=True)
 
+SHOW_PLOTS = True
+
 # === GLOBAL PLOT STYLE SETTINGS ===
 COLORS = {
     "background": "#000000",
@@ -140,9 +142,10 @@ def plot_weekly(df_activities: pd.DataFrame, col='risk'):
         cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(format_colorbar))
 
     plt.tight_layout()
-    plt.show()
+    if SHOW_PLOTS:
+        plt.show()
 
-def plot_weekly_distance_targets(df_activities: pd.DataFrame):
+def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: int = 1):
     # --- Prepare base data ---
     df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
     df_runs = df_activities[
@@ -158,10 +161,9 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
         long_run='max'
     ).sort_index()
 
-    # --- Current and next week ---
+    # --- Current week ---
     now = pd.Timestamp.now(tz=df_runs['start_date'].dt.tz)
     this_week = now.to_period('W-SUN').end_time
-    next_week = this_week + pd.Timedelta(days=7)
 
     if this_week not in weekly.index:
         weekly.loc[this_week] = {'total_volume': 0, 'long_run': 0}
@@ -171,9 +173,14 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
     this_week_volume = weekly.loc[this_week, 'total_volume']
     last_week_volume = weekly.loc[last_week, 'total_volume'] if last_week else 0
 
-    # --- 10% growth targets ---
-    this_week_target = last_week_volume * 1.1
-    next_week_target = this_week_target * 1.1
+    # --- Generate progressive weekly targets ---
+    targets = []
+    # prev_target = last_week_volume * 1.1
+    prev_target = max((last_week_volume * 1.1), this_week_volume)   # this week target baseline, or this week's actual if higher
+    for i in range(1, additional_weeks + 1):
+        week_end = this_week + pd.Timedelta(days=7 * i)
+        targets.append((week_end, prev_target * 1.1))
+        prev_target *= 1.1
 
     # --- Recent weeks for plotting ---
     last_x_weeks = 7
@@ -181,7 +188,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
     past_weeks = recent_weeks.loc[recent_weeks.index < this_week]
 
     # --- Figure ---
-    fig, ax = setup_figure(width=5, height=3)
+    fig, ax = setup_figure(width=5+additional_weeks*0.5, height=3+additional_weeks*0.5)
 
     # --- Bars ---
     # Past weeks
@@ -207,6 +214,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
     )
 
     # Remaining distance to target
+    this_week_target = last_week_volume * 1.1
     remaining = max(this_week_target - this_week_volume, 0)
     if remaining > 0:
         ax.bar(
@@ -218,17 +226,18 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
             label='Remaining to Target'
         )
 
-    # Next week target
-    ax.bar(
-        next_week,
-        next_week_target,
-        width=STYLE["bar_width"],
-        color=STYLE["highlight_color"],
-        alpha=0.9,
-        linewidth=STYLE["bar_linewidth"],
-        edgecolor=STYLE["bar_edge_color"],
-        label='Next Week Target'
-    )
+    # --- Future week targets ---
+    for week, target in targets:
+        ax.bar(
+            week,
+            target,
+            width=STYLE["bar_width"],
+            color=STYLE["highlight_color"],
+            alpha=0.9,
+            linewidth=STYLE["bar_linewidth"],
+            edgecolor=STYLE["bar_edge_color"],
+            label='Future Target' if week == targets[0][0] else ""
+        )
 
     # --- Labels on bars ---
     def add_label(x, y, text, color='white', offset=0.5, inside=False, fontsize=None):
@@ -252,16 +261,17 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
     else:
         add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", inside=False, color=STYLE["text_color"])
 
-    add_label(next_week, next_week_target, f"{next_week_target:.1f}", color=STYLE["text_color"])
+    for week, target in targets:
+        add_label(week, target, f"{target:.1f}", color=STYLE["text_color"])
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
     plt.xticks(rotation=45, ha='right', color=STYLE["text_color"], rotation_mode='anchor')
     plt.yticks(color=STYLE["text_color"])
-    ax.set_ylim(0, max(recent_weeks['total_volume'].max(), next_week_target) * 1.2)
+    ax.set_ylim(0, max(recent_weeks['total_volume'].max(), max(t for _, t in targets)) * 1.2)
     ax.set_ylabel('Weekly Distance (km)', color=STYLE["text_color"])
     ax.set_title(
-        'Weekly Running Volume (10% Growth Targets)',
+        f'Weekly Running Volume (+10% Growth for {additional_weeks} Weeks)',
         color=STYLE["highlight_color"],
         weight=STYLE["title_weight"]
     )
@@ -269,7 +279,8 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame):
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
     plt.tight_layout()
-    plt.show()
+    if SHOW_PLOTS:
+        plt.show()
 
 def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, sub_title=None):
     x = np.arange(len(values))
@@ -317,14 +328,15 @@ def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, su
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
     plt.tight_layout()
-    plt.show()
+    if SHOW_PLOTS:
+        plt.show()
 
 def target_to_proportions(target_km, target_proportions):
     return target_proportions / sum(target_proportions) * target_km
 
 def plot_week_plan(target_km, runs=4):
     if runs==3:
-        target_proportions = np.array([3. , 0. , 6. , 0. , 0. , 9. , 0. ])
+        target_proportions = np.array([5. , 0. , 6. , 0. , 0. , 9. , 0. ])
     elif runs==4:
         target_proportions = np.array([3. , 6. , 0. , 4.5, 0. , 9. , 0. ])
     elif runs==5:
@@ -338,7 +350,7 @@ def remaining_week_kms(runs_ran, target_km, runs=4):
     # --- Planned distribution ---
     ### I got these from a youtube video for planning 3, 4 or 5 runs per week, numbers in the distribution represent miles
     if runs == 3:
-        target_proportions = np.array([3., 0., 6., 0., 0., 9., 0.])
+        target_proportions = np.array([5., 0., 6., 0., 0., 9., 0.])
     elif runs == 4:
         target_proportions = np.array([3., 6., 0., 4.5, 0., 9., 0.])
     elif runs == 5:
@@ -358,10 +370,13 @@ def remaining_week_kms(runs_ran, target_km, runs=4):
     
     # --- Calculate remaining distance to hit target ---
     remaining_km = target_km - sum(runs_ran)
-    if remaining_km <= 0 or len(remaining_planned) == 0:
+    if remaining_km <= 0:
         return np.zeros_like(remaining_planned)
-    
-    # --- Rescale remaining planned runs proportionally ---
+
+    if len(remaining_planned) == 0:
+        # fallback: evenly split remaining km over remaining runs
+        remaining_planned = np.ones(runs - len(runs_ran))
+        
     remaining_scaled = remaining_planned / remaining_planned.sum() * remaining_km
     return remaining_scaled
 
@@ -375,7 +390,9 @@ def plot_current_week_plan(df_activities, week_target, runs=4, exclude_today=Tru
 
     # --- Determine current week data ---
     s_weeks = df_activities['start_date'].dt.to_period('W-SUN')
-    df_week = df_activities[s_weeks == s_weeks.max()].copy()
+    # df_week = df_activities[s_weeks == s_weeks.max()].copy()
+    current_week_period = pd.Timestamp.now().to_period('W-SUN')
+    df_week = df_activities[s_weeks == current_week_period].copy()
     df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
 
     # --- Fill actual distances into 7-day array ---
