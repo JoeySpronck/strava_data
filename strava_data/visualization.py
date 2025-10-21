@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -7,6 +8,7 @@ import numpy as np
 plt.rc('axes', axisbelow=True)
 
 SHOW_PLOTS = True
+SAVE_FOLDER = "plots"
 
 # === GLOBAL PLOT STYLE SETTINGS ===
 COLORS = {
@@ -49,7 +51,7 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.rcParams["font.family"] = STYLE["font_family"]
     return fig, ax
 
-def plot_weekly(df_activities: pd.DataFrame, col='risk'):
+def plot_weekly(df_activities: pd.DataFrame, col='risk', save_name=None):
     """
     Plot weekly stacked bars colored by 'distance', 'pace', or 'risk'.
 
@@ -142,10 +144,15 @@ def plot_weekly(df_activities: pd.DataFrame, col='risk'):
         cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(format_colorbar))
 
     plt.tight_layout()
+    if save_name:
+        plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
+    
     if SHOW_PLOTS:
         plt.show()
+    else:
+        plt.close()
 
-def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: int = 1):
+def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: int = 1, save_name=None):
     # --- Prepare base data ---
     df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
     df_runs = df_activities[
@@ -216,6 +223,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     # Remaining distance to target
     this_week_target = last_week_volume * 1.1
     remaining = max(this_week_target - this_week_volume, 0)
+    
     if remaining > 0:
         ax.bar(
             this_week,
@@ -279,10 +287,15 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
     plt.tight_layout()
+    if save_name:
+        plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
+
     if SHOW_PLOTS:
         plt.show()
+    else:
+        plt.close()
 
-def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, sub_title=None):
+def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, sub_title=None, save_name=None):
     x = np.arange(len(values))
     total = np.sum(values)
     max_val = max(values) if len(values) > 0 else 0
@@ -328,13 +341,18 @@ def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, su
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
     plt.tight_layout()
+    if save_name:
+        plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
+
     if SHOW_PLOTS:
         plt.show()
+    else:
+        plt.close()
 
 def target_to_proportions(target_km, target_proportions):
     return target_proportions / sum(target_proportions) * target_km
 
-def plot_week_plan(target_km, runs=4):
+def plot_week_plan(target_km, runs=4, save_name=None):
     if runs==3:
         target_proportions = np.array([5. , 0. , 6. , 0. , 0. , 9. , 0. ])
     elif runs==4:
@@ -344,7 +362,7 @@ def plot_week_plan(target_km, runs=4):
     else:
         raise ValueError("Only 3, 4 or 5 runs supported.")
     values = target_to_proportions(target_km, target_proportions)
-    barplot(values, title=f"Weekly Plan for {target_km} km ({runs} runs)")
+    barplot(values, title=f"Weekly Plan for {target_km} km ({runs} runs)", save_name=save_name)
 
 def remaining_week_kms(runs_ran, target_km, runs=4):
     # --- Planned distribution ---
@@ -380,7 +398,7 @@ def remaining_week_kms(runs_ran, target_km, runs=4):
     remaining_scaled = remaining_planned / remaining_planned.sum() * remaining_km
     return remaining_scaled
 
-def plot_current_week_plan(df_activities, week_target, runs=4, exclude_today=True):
+def plot_current_week_plan(df_activities, week_target, runs=4, exclude_today=True, save_name=None):
     """
     Plot a realistic weekly running plan considering:
     - Past runs (no back-to-back if avoidable)
@@ -465,5 +483,6 @@ def plot_current_week_plan(df_activities, week_target, runs=4, exclude_today=Tru
         plan,
         title=f"Week Plan | {runs} runs, target {week_target} km",
         sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
-        highlight_list=highlight
+        highlight_list=highlight, 
+        save_name=save_name
     )

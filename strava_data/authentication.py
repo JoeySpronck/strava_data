@@ -7,9 +7,17 @@ os.environ["SILENCE_TOKEN_WARNINGS"] = "true"
 # Got main logic from:
 # https://github.com/stravalib/stravalib/blob/main/docs/get-started/how-to-get-strava-data-python.md
 def login():
-    with open("secrets/client_secrets.txt", "r") as f:
-        # This file should contain your client_id and client_secret, separated by a comma
-        client_id, client_secret = f.read().strip().split(",")
+    if os.path.isfile("secrets/client_secrets.txt"):
+        with open("secrets/client_secrets.txt", "r") as f:
+            # This file should contain your client_id and client_secret, separated by a comma
+            client_id, client_secret = f.read().strip().split(",")
+    elif "STRAVA_CLIENT_ID" in os.environ and "STRAVA_CLIENT_SECRET" in os.environ:
+        client_id = os.environ["STRAVA_CLIENT_ID"]
+        client_secret = os.environ["STRAVA_CLIENT_SECRET"]
+    else:
+        raise Exception("No client_secrets.txt file found in secrets/ folder, ",
+            "and no STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET environment variables set. ",
+            "Please create the file or set the environment variables.")
     client = Client()
 
     if not os.path.exists("secrets/strava_token.json"):
