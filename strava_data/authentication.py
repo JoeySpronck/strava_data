@@ -20,7 +20,7 @@ def login():
             "Please create the file or set the environment variables.")
     client = Client()
 
-    if not os.path.exists("secrets/strava_token.json"):
+    if not os.path.exists("secrets/strava_token.json") and "STRAVA_CLIENT_REFRESH_TOKEN" not in os.environ:
         request_scope = ["read_all", "profile:read_all", "activity:read_all"]
         redirect_url = "http://127.0.0.1:5000/authorization"
         url = client.authorization_url(
@@ -38,13 +38,19 @@ def login():
         with open("secrets/strava_token.json", "w") as f:
             json.dump(token_response, f)
     else:
-        print("You have already authenticated once before. Refreshing your token now.")
-        with open("secrets/strava_token.json") as f:
-            token_response = json.load(f)
+        if os.path.isfile("secrets/strava_token.json"):
+            print("You have already authenticated once before. Refreshing your token now.")
+            with open("secrets/strava_token.json") as f:
+                token_response = json.load(f)
+            refresh_token = token_response["refresh_token"]
+        else:
+            if "STRAVA_CLIENT_REFRESH_TOKEN" in os.environ:
+                refresh_token = os.environ["STRAVA_CLIENT_REFRESH_TOKEN"]
+                print("Using STRAVA_CLIENT_REFRESH_TOKEN from environment variable.")
         refresh_response = client.refresh_access_token(
             client_id=client_id,  # Stored in the secrets.txt file above
             client_secret=client_secret,
-            refresh_token=token_response["refresh_token"],  # Stored in your JSON file
+            refresh_token=refresh_token,  # Stored in your JSON file or env variable
         )
     # Check that the refresh worked
     athlete = client.get_athlete()

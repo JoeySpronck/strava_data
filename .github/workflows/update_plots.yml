@@ -7,13 +7,16 @@ on:
 
 jobs:
   update-plots:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: dev_github_action  # base branch where your script currently lives
+          ref: main  # base branch where your script currently lives
+          token: ${{ secrets.GITHUB_TOKEN }}  # allows push
+          persist-credentials: true  # This is key for pushing back
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -28,6 +31,7 @@ jobs:
         env:
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+          STRAVA_CLIENT_REFRESH_TOKEN: ${{ secrets.STRAVA_CLIENT_REFRESH_TOKEN }}
         run: |
           python update_plots.py
 
