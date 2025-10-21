@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 import os
 
+vis.SHOW_PLOTS = False
+
 # LOGIN
 client = login()
 
