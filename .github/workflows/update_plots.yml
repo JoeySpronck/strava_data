@@ -7,13 +7,14 @@ on:
 
 jobs:
   update-plots:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: dev_github_action  # base branch where your script currently lives
+          ref: main  # base branch where your script currently lives
           token: ${{ secrets.GITHUB_TOKEN }}  # allows push
           persist-credentials: true  # This is key for pushing back
 
