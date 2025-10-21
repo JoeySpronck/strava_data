@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: main  # base branch where your script currently lives
+          ref: dev_github_action  # base branch where your script currently lives
 
       - name: Set up Python
         uses: actions/setup-python@v5
