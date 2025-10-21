@@ -1,0 +1,41 @@
+name: Update images from Strava
+
+on:
+  workflow_dispatch:  # allows manual trigger
+  schedule:
+    - cron: '0 13 * * *'  # runs every day at 13:00 UTC (1 PM UTC)
+
+jobs:
+  update-images:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: dev_github_action  # base branch where your script currently lives
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run update script
+        env:
+          STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
+          STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
+        run: |
+          python update_plots.py
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -B update
+          git add .
+          git commit -m "Update plots from Strava" || echo "No changes to commit"
+          git push origin update --force
