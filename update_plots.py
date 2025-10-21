@@ -45,7 +45,7 @@ vis.plot_weekly(df_activities, col='risk', save_name='weekly_risk.png')
 # Weekly volume progression
 vis.plot_weekly_distance_targets(df_activities, additional_weeks=4, save_name=f'weekly_distance_targets.png')
 
-# Weekly volume plans
+# Prepare last weeks data
 df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
 df_runs = df_activities[
     (df_activities['type'] == "Run") &
@@ -60,13 +60,21 @@ weekly = df_runs.groupby('week')['distance_km'].agg(
     long_run='max'
 ).sort_index()
 
-week_target = float(weekly.iloc[-1]['total_volume'] * 1.1)
+now = pd.Timestamp.now(tz=df_runs['start_date'].dt.tz)
+this_week = now.to_period('W-SUN').end_time
 
-for runs in [3, 4, 5]:
-    vis.plot_week_plan(week_target, runs)
+if this_week not in weekly.index:
+    weekly.loc[this_week] = {'total_volume': 0, 'long_run': 0}
+weekly = weekly.sort_index()
+week_target = round(float(weekly.iloc[-2]['total_volume'] * 1.1), 1)
 
+# Week plan plots
 for runs in [3, 4, 5]:
-    vis.plot_current_week_plan(df_activities, week_target, runs=runs, exclude_today=False, save_name=f'current_week_plan_{runs}_runs.png')
+    vis.plot_week_plan(week_target, runs, save_name=f'week_plan_{runs}_runs.png')
+
+# Current week plan plots
+for runs in [3, 4, 5]:
+    vis.plot_current_week_plan(df_activities, week_target, runs=runs, save_name=f'current_week_plan_{runs}_runs.png')
 
 print("All plots updated and saved to the plots/ folder.")
 print("DONE")
