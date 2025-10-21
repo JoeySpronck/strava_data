@@ -1,4 +1,4 @@
-name: Update images from Strava
+name: Update plots from Strava
 
 on:
   workflow_dispatch:  # allows manual trigger
@@ -6,7 +6,7 @@ on:
     - cron: '0 13 * * *'  # runs every day at 13:00 UTC (1 PM UTC)
 
 jobs:
-  update-images:
+  update-plots:
     runs-on: ubuntu-latest
 
     steps:
