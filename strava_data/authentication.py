@@ -20,7 +20,7 @@ def login():
             "Please create the file or set the environment variables.")
     client = Client()
 
-    if not os.path.exists("secrets/strava_token.json") or "STRAVA_CLIENT_REFRESH_TOKEN" in os.environ:
+    if not os.path.exists("secrets/strava_token.json") and "STRAVA_CLIENT_REFRESH_TOKEN" not in os.environ:
         request_scope = ["read_all", "profile:read_all", "activity:read_all"]
         redirect_url = "http://127.0.0.1:5000/authorization"
         url = client.authorization_url(
