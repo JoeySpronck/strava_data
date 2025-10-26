@@ -66,7 +66,15 @@ this_week = now.to_period('W-SUN').end_time
 if this_week not in weekly.index:
     weekly.loc[this_week] = {'total_volume': 0, 'long_run': 0}
 weekly = weekly.sort_index()
+
 week_target = round(float(weekly.iloc[-2]['total_volume'] * 1.1), 1)
+week_ran = round(float(weekly.loc[this_week]['total_volume'].sum()), 1)
+
+if week_ran > week_target:
+    week_target = round(week_ran * 1.1, 1)
+    target_next_week = True
+else:
+    target_next_week = False
 
 # Week plan plots
 for runs in [3, 4, 5]:
@@ -74,7 +82,7 @@ for runs in [3, 4, 5]:
 
 # Current week plan plots
 for runs in [3, 4, 5]:
-    vis.plot_current_week_plan(df_activities, week_target, runs=runs, save_name=f'current_week_plan_{runs}_runs.png')
+    vis.plot_current_week_plan(df_activities, week_target, runs=runs, target_next_week=target_next_week, save_name=f'current_week_plan_{runs}_runs.png')
 
 print("All plots updated and saved to the plots/ folder.")
 print("DONE")

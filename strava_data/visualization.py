@@ -13,7 +13,7 @@ SAVE_FOLDER = "plots"
 # === GLOBAL PLOT STYLE SETTINGS ===
 COLORS = {
     "background": "#000000",
-    "main": "#FC5200", # strava orange
+    "main": "#FB5200", # strava orange
     "neutral": "#FFFFFF",
     "dark": "#555555",
 }
@@ -260,8 +260,8 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
 
     for week, row in past_weeks.iterrows():
         add_label(week, row['total_volume'], f"{row['total_volume']:.1f}", color=STYLE["text_color"])
-    
-    if this_week_volume > 0:
+
+    if this_week_volume > 0 and remaining > 0:
         add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", inside=True, color=STYLE["background_color"])
     if remaining > 0:
         add_label(this_week, this_week_volume + remaining, f"{remaining:.1f}", inside=True, color=STYLE["background_color"])
@@ -362,7 +362,7 @@ def plot_week_plan(target_km, runs=4, save_name=None):
     else:
         raise ValueError("Only 3, 4 or 5 runs supported.")
     values = target_to_proportions(target_km, target_proportions)
-    barplot(values, title=f"Weekly Plan for {target_km} km ({runs} runs)", save_name=save_name)
+    barplot(values, title=f"Week Plan for {target_km} km ({runs} runs)", save_name=save_name)
 
 def remaining_week_kms(runs_ran, target_km, runs=4):
     # --- Planned distribution ---
@@ -496,7 +496,105 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
     )
 
 
-def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
+# def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
+#     """
+#     Plot a realistic weekly running plan considering:
+#     - Past runs (no back-to-back if avoidable)
+#     - Even spacing between future runs
+#     - Rest days in between if possible
+#     - Automatically excludes today if a run was already done today
+#     - Properly includes Sunday in planning
+#     """
+
+#     # --- Determine current week data (ISO week: Monday–Sunday) ---
+#     s_weeks = df_activities['start_date'].dt.isocalendar().week
+#     s_years = df_activities['start_date'].dt.isocalendar().year
+
+#     now = pd.Timestamp.now()
+#     current_week = now.isocalendar().week
+#     current_year = now.isocalendar().year
+
+#     df_week = df_activities[
+#         (s_years == current_year) & (s_weeks == current_week)
+#     ].copy()
+
+#     df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
+
+#     # --- Fill actual distances into 7-day array ---
+#     current_week_km = np.zeros(7)
+#     for _, row in df_week.iterrows():
+#         current_week_km[int(row['day_of_week'])] += row['distance'] / 1000
+
+#     # --- Identify current day ---
+#     current_day = now.day_of_week
+#     ran_today = current_week_km[current_day] > 0
+
+#     # Automatically exclude today if already ran
+#     days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
+#     if len(days_left) == 0:
+#         print("Week is over — no remaining days to plan.")
+#         return
+
+#     # --- Compute remaining runs ---
+#     runs_ran = list(df_week['distance'] / 1000)
+#     done_km = sum(runs_ran)
+#     remaining = remaining_week_kms(runs_ran, week_target, runs=runs)
+#     n_remaining_runs = len(remaining)
+
+#     if n_remaining_runs == 0:
+#         print("No runs remaining — goal already met!")
+#         return
+#     if len(days_left) < n_remaining_runs:
+#         print(f"IMPOSSIBLE: Only {len(days_left)} days left, need {n_remaining_runs} runs.")
+#         return
+
+#     # --- Identify already-run days ---
+#     run_days = np.where(current_week_km > 0)[0]
+#     available_days = list(days_left)
+
+#     # --- Improved smart placement ---
+#     plan = current_week_km.copy()
+#     highlight = np.zeros(7)
+
+#     last_run_day = run_days.max() if len(run_days) > 0 else -2
+#     min_gap = 1  # prefer at least 1 rest day between runs
+
+#     assign_days = []
+
+#     # Pass 1: try to schedule from Sunday backwards to maximize spacing
+#     for day in reversed(available_days):
+#         if len(assign_days) >= n_remaining_runs:
+#             break
+#         if any(abs(day - d) <= min_gap for d in list(run_days) + assign_days):
+#             continue
+#         assign_days.append(day)
+
+#     # Pass 2: fill remaining slots (earlier days)
+#     if len(assign_days) < n_remaining_runs:
+#         for day in available_days:
+#             if day not in assign_days:
+#                 assign_days.append(day)
+#                 if len(assign_days) >= n_remaining_runs:
+#                     break
+
+#     # Sort final day list for consistent plotting
+#     assign_days = sorted(assign_days[:n_remaining_runs])
+
+#     # --- Assign planned runs ---
+#     for i, day in enumerate(assign_days):
+#         plan[day] = remaining[i]
+#         highlight[day] = 1
+
+#     # --- Plot ---
+#     barplot(
+#         plan,
+#         title=f"Week Plan | {runs} runs, target {week_target} km",
+#         sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
+#         highlight_list=highlight,
+#         save_name=save_name
+#     )
+
+def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None, target_next_week=False):
     """
     Plot a realistic weekly running plan considering:
     - Past runs (no back-to-back if avoidable)
@@ -504,18 +602,30 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
     - Rest days in between if possible
     - Automatically excludes today if a run was already done today
     - Properly includes Sunday in planning
+    - If target_next_week=True, plans next week's schedule instead
     """
 
-    # --- Determine current week data (ISO week: Monday–Sunday) ---
-    s_weeks = df_activities['start_date'].dt.isocalendar().week
-    s_years = df_activities['start_date'].dt.isocalendar().year
-
+    # --- Determine current or next week ---
     now = pd.Timestamp.now()
     current_week = now.isocalendar().week
     current_year = now.isocalendar().year
 
+    if target_next_week:
+        # Shift to next ISO week
+        next_week_date = now + pd.Timedelta(days=7)
+        target_week = next_week_date.isocalendar().week
+        target_year = next_week_date.isocalendar().year
+        title_week_label = "Next Week"
+    else:
+        target_week = current_week
+        target_year = current_year
+        title_week_label = "Current Week"
+
+    # --- Filter activities for selected week ---
+    s_weeks = df_activities['start_date'].dt.isocalendar().week
+    s_years = df_activities['start_date'].dt.isocalendar().year
     df_week = df_activities[
-        (s_years == current_year) & (s_weeks == current_week)
+        (s_years == target_year) & (s_weeks == target_week)
     ].copy()
 
     df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
@@ -527,10 +637,14 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
 
     # --- Identify current day ---
     current_day = now.day_of_week
-    ran_today = current_week_km[current_day] > 0
+    ran_today = current_week_km[current_day] > 0 if not target_next_week else False
 
-    # Automatically exclude today if already ran
-    days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
+    # --- Days left for planning ---
+    if target_next_week:
+        days_left = np.arange(0, 7)
+    else:
+        days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
+
     if len(days_left) == 0:
         print("Week is over — no remaining days to plan.")
         return
@@ -556,12 +670,10 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
     plan = current_week_km.copy()
     highlight = np.zeros(7)
 
-    last_run_day = run_days.max() if len(run_days) > 0 else -2
     min_gap = 1  # prefer at least 1 rest day between runs
-
     assign_days = []
 
-    # Pass 1: try to schedule from Sunday backwards to maximize spacing
+    # Pass 1: schedule from Sunday backwards to maximize spacing
     for day in reversed(available_days):
         if len(assign_days) >= n_remaining_runs:
             break
@@ -569,7 +681,7 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
             continue
         assign_days.append(day)
 
-    # Pass 2: fill remaining slots (earlier days)
+    # Pass 2: fill remaining slots
     if len(assign_days) < n_remaining_runs:
         for day in available_days:
             if day not in assign_days:
@@ -577,7 +689,7 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
                 if len(assign_days) >= n_remaining_runs:
                     break
 
-    # Sort final day list for consistent plotting
+    # Sort final days for plotting
     assign_days = sorted(assign_days[:n_remaining_runs])
 
     # --- Assign planned runs ---
@@ -588,7 +700,7 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
     # --- Plot ---
     barplot(
         plan,
-        title=f"Week Plan | {runs} runs, target {week_target} km",
+        title=f"{title_week_label} Plan | {runs} runs, target {week_target} km",
         sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
         highlight_list=highlight,
         save_name=save_name
