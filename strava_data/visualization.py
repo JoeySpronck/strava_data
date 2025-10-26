@@ -161,7 +161,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     ].copy()
     
     df_runs['distance_km'] = df_runs['distance'] / 1000
-    df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)   
+    df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
     weekly = df_runs.groupby('week')['distance_km'].agg(
         total_volume='sum',
@@ -180,14 +180,21 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     this_week_volume = weekly.loc[this_week, 'total_volume']
     last_week_volume = weekly.loc[last_week, 'total_volume'] if last_week else 0
 
+    # --- Determine this week’s target ---
+    this_week_target = last_week_volume * 1.1
+    target_reached = this_week_volume >= this_week_target
+
+    # --- Define baseline for future growth ---
+    # If target surpassed, we use that as baseline for next targets
+    base_for_growth = max(this_week_target, this_week_volume)
+
     # --- Generate progressive weekly targets ---
     targets = []
-    # prev_target = last_week_volume * 1.1
-    prev_target = max((last_week_volume * 1.1), this_week_volume)   # this week target baseline, or this week's actual if higher
+    prev_target = base_for_growth
     for i in range(1, additional_weeks + 1):
         week_end = this_week + pd.Timedelta(days=7 * i)
-        targets.append((week_end, prev_target * 1.1))
         prev_target *= 1.1
+        targets.append((week_end, prev_target))
 
     # --- Recent weeks for plotting ---
     last_x_weeks = 7
@@ -209,30 +216,40 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
         label='Completed Weeks'
     )
 
-    # Current week progress
-    ax.bar(
-        this_week,
-        this_week_volume,
-        width=STYLE["bar_width"],
-        color=STYLE["neutral_color"],
-        linewidth=STYLE["bar_linewidth"],
-        edgecolor=STYLE["bar_edge_color"],
-        label='This Week (Progress)'
-    )
-
-    # Remaining distance to target
-    this_week_target = last_week_volume * 1.1
-    remaining = max(this_week_target - this_week_volume, 0)
-    
-    if remaining > 0:
+    # Current week
+    if target_reached:
+        # Fully completed bar
         ax.bar(
             this_week,
-            remaining,
-            bottom=this_week_volume,
+            this_week_volume,
             width=STYLE["bar_width"],
-            color=STYLE["highlight_color"],
-            label='Remaining to Target'
+            color=STYLE["neutral_color"],
+            linewidth=STYLE["bar_linewidth"],
+            edgecolor=STYLE["bar_edge_color"],
+            label='This Week (Completed)'
         )
+    else:
+        remaining = max(this_week_target - this_week_volume, 0)
+        # Completed portion
+        ax.bar(
+            this_week,
+            this_week_volume,
+            width=STYLE["bar_width"],
+            color=STYLE["neutral_color"],
+            linewidth=STYLE["bar_linewidth"],
+            edgecolor=STYLE["bar_edge_color"],
+            label='This Week (Progress)'
+        )
+        # Remaining portion
+        if remaining > 0:
+            ax.bar(
+                this_week,
+                remaining,
+                bottom=this_week_volume,
+                width=STYLE["bar_width"],
+                color=STYLE["highlight_color"],
+                label='Remaining to Target'
+            )
 
     # --- Future week targets ---
     for week, target in targets:
@@ -247,7 +264,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
             label='Future Target' if week == targets[0][0] else ""
         )
 
-    # --- Labels on bars ---
+    # --- Labels ---
     def add_label(x, y, text, color='white', offset=0.5, inside=False, fontsize=None):
         va = 'top' if inside else 'bottom'
         y_pos = y - (offset + 0.1) if inside else y + offset
@@ -261,13 +278,17 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     for week, row in past_weeks.iterrows():
         add_label(week, row['total_volume'], f"{row['total_volume']:.1f}", color=STYLE["text_color"])
 
-    if this_week_volume > 0 and remaining > 0:
-        add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", inside=True, color=STYLE["background_color"])
-    if remaining > 0:
-        add_label(this_week, this_week_volume + remaining, f"{remaining:.1f}", inside=True, color=STYLE["background_color"])
-        add_label(this_week, this_week_volume + remaining, f"{this_week_target:.1f}", inside=False, color=STYLE["text_color"])
+    if target_reached:
+        add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", color=STYLE["text_color"])
     else:
-        add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", inside=False, color=STYLE["text_color"])
+        remaining = max(this_week_target - this_week_volume, 0)
+        if this_week_volume > 0:
+            add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", inside=True, color=STYLE["background_color"])
+        if remaining > 0:
+            add_label(this_week, this_week_volume + remaining, f"{remaining:.1f}", inside=True, color=STYLE["background_color"])
+            add_label(this_week, this_week_volume + remaining, f"{this_week_target:.1f}", inside=False, color=STYLE["text_color"])
+        else:
+            add_label(this_week, this_week_volume, f"{this_week_volume:.1f}", color=STYLE["text_color"])
 
     for week, target in targets:
         add_label(week, target, f"{target:.1f}", color=STYLE["text_color"])
@@ -279,7 +300,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
     ax.set_ylim(0, max(recent_weeks['total_volume'].max(), max(t for _, t in targets)) * 1.2)
     ax.set_ylabel('Weekly Distance (km)', color=STYLE["text_color"])
     ax.set_title(
-        f'Weekly Running Volume (+10% Growth for {additional_weeks} Weeks)',
+        f'Weekly Running Volume Progression (+10% Growth Target)',
         color=STYLE["highlight_color"],
         weight=STYLE["title_weight"]
     )
@@ -294,6 +315,7 @@ def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: 
         plt.show()
     else:
         plt.close()
+
 
 def barplot(values, title=None, y_label="Distance (km)", highlight_list=None, sub_title=None, save_name=None):
     x = np.arange(len(values))
