@@ -2,7 +2,8 @@
 ###### Joey Spronck
 This repository tracks running progress and training plans. All data are updated via strava API.
 
-Checkout the [plot_updates](https://github.com/JoeySpronck/strava_data/tree/plot_updates) branch for (automatically) updated figures (via github actions).
+## Checkout the [plot_updates README](https://github.com/JoeySpronck/strava_data/tree/plot_updates/README.md)
+For automatically updated figures (via github actions).
 
 ---
 ### 📈 Weekly volume progression
