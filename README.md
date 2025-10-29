@@ -2,19 +2,19 @@
 ###### Joey Spronck
 This repository tracks running progress and training plans. All data are updated via strava API.
 
-## Checkout the [plot_updates README](https://github.com/JoeySpronck/strava_data/tree/plot_updates/README.md)
-For automatically updated figures (via github actions).
+### Checkout the [plot_updates README](https://github.com/JoeySpronck/strava_data/tree/plot_updates/README.md) for automatically updated figures (via github actions).
 
 ---
 ### 📈 Weekly volume progression
-###### Based on 10% rule. The next unreached target (this or next week) will be used as target for following plots
+> Based on 10% rule. The next unreached target (this or next week) will be used as target for following plots.
 <p align="left">
   <img src="plots/weekly_distance_targets.png" alt="Weekly distance targets" width="500">
 </p>
 
 ---
 ### Example Week Plans
-###### These plots show examples of how a week could be divided into multiple runs, given the target mileage.
+> These plots show examples of how a week could be divided into multiple runs, given the target mileage.
+
 <p align="left">
   <img src="plots/week_plan_3_runs.png" alt="Week plan (3 runs)" width="300">
 </p>
@@ -27,7 +27,7 @@ For automatically updated figures (via github actions).
 
 ---
 ### Current/Next Week Plans
-###### These plots automatically update and show the ran runs in white and proposed runs in orange. They try to somewhat stick to schemes plotted above.
+> These plots automatically update and show the ran runs in white and proposed runs in orange. They try to somewhat stick to schemes plotted above.
 <p align="left">
   <img src="plots/current_week_plan_3_runs.png" alt="Current week (3 runs)" width="300">
 </p>
@@ -40,10 +40,10 @@ For automatically updated figures (via github actions).
 
 ---
 ### Weekly Stacked Plots
-###### Stacked barplots, showing run stacks for each week. 
+> Stacked barplots, showing run stacks for each week. 
 
 #### Color = Risk 
-###### Here risk is defined by combining distance from normal distribution. Faster and longer runs contribute to higher risk, slower and shorter to lower risk.
+> Here risk is defined by combining distance from normal distribution. Faster and longer runs contribute to higher risk, slower and shorter to lower risk.
 <p align="left">
   <img src="plots/weekly_risk.png" alt="Weekly risk" width="800">
 </p>
