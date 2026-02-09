@@ -92,9 +92,9 @@ else:
 # UPDATE PLOTS
 # --------------------------
 # Stacked plots
-vis.plot_weekly(df_activities, col='distance', save_name='weekly_distance.png')
-vis.plot_weekly(df_activities, col='pace', save_name='weekly_pace.png')
-vis.plot_weekly(df_activities, col='risk', save_name='weekly_risk.png')
+vis.plot_weekly(df_runs, col='distance', save_name='weekly_distance.png')
+vis.plot_weekly(df_runs, col='pace', save_name='weekly_pace.png')
+vis.plot_weekly(df_runs, col='risk', save_name='weekly_risk.png')
 
 # Weekly volume progression
 vis.plot_weekly_distance_targets(

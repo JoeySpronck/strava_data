@@ -51,19 +51,19 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.rcParams["font.family"] = STYLE["font_family"]
     return fig, ax
 
-def plot_weekly(df_activities: pd.DataFrame, col='risk', save_name=None):
+def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     """
     Plot weekly stacked bars colored by 'distance', 'pace', or 'risk'.
 
     Parameters:
-        df_activities (pd.DataFrame): activity data with 'start_date', 'type', 'distance', 'average_speed'
+        df_runs (pd.DataFrame): activity data with 'start_date', 'type', 'distance', 'average_speed'
         col (str): 'distance', 'pace', or 'risk'
     """
     # --- Filter runs ---
-    df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
-    df_runs = df_activities[(df_activities['type'] == "Run") & (df_activities['start_date'].dt.year >= 2025)].copy()
-    df_runs['distance_km'] = df_runs['distance'] / 1000
-    df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
+    # df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
+    # df_runs = df_activities[(df_activities['type'] == "Run") & (df_activities['start_date'].dt.year >= 2025)].copy()
+    # df_runs['distance_km'] = df_runs['distance'] / 1000
+    # df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
     # --- Determine coloring ---
     if col == 'distance':
@@ -434,104 +434,104 @@ def remaining_week_kms(runs_ran, target_km, runs=4):
     remaining_scaled = remaining_planned / remaining_planned.sum() * remaining_km
     return remaining_scaled
 
-def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
-    """
-    Plot a realistic weekly running plan considering:
-    - Past runs (no back-to-back if avoidable)
-    - Even spacing between future runs
-    - Rest days in between if possible
-    - Automatically excludes today if a run was already done today
-    - Properly includes Sunday in planning
-    """
+# def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None):
+#     """
+#     Plot a realistic weekly running plan considering:
+#     - Past runs (no back-to-back if avoidable)
+#     - Even spacing between future runs
+#     - Rest days in between if possible
+#     - Automatically excludes today if a run was already done today
+#     - Properly includes Sunday in planning
+#     """
 
-    # --- Determine current week data (ISO week: Monday–Sunday) ---
-    s_weeks = df_activities['start_date'].dt.isocalendar().week
-    s_years = df_activities['start_date'].dt.isocalendar().year
+#     # --- Determine current week data (ISO week: Monday–Sunday) ---
+#     s_weeks = df_runs['start_date'].dt.isocalendar().week
+#     s_years = df_runs['start_date'].dt.isocalendar().year
 
-    now = pd.Timestamp.now()
-    current_week = now.isocalendar().week
-    current_year = now.isocalendar().year
+#     now = pd.Timestamp.now()
+#     current_week = now.isocalendar().week
+#     current_year = now.isocalendar().year
 
-    df_week = df_activities[
-        (s_years == current_year) & (s_weeks == current_week)
-    ].copy()
+#     df_week = df_runs[
+#         (s_years == current_year) & (s_weeks == current_week)
+#     ].copy()
 
-    df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
+#     df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
 
-    # --- Fill actual distances into 7-day array ---
-    current_week_km = np.zeros(7)
-    for _, row in df_week.iterrows():
-        current_week_km[int(row['day_of_week'])] += row['distance'] / 1000
+#     # --- Fill actual distances into 7-day array ---
+#     current_week_km = np.zeros(7)
+#     for _, row in df_week.iterrows():
+#         current_week_km[int(row['day_of_week'])] += row['distance'] / 1000
 
-    # --- Identify current day ---
-    current_day = now.day_of_week
-    ran_today = current_week_km[current_day] > 0
+#     # --- Identify current day ---
+#     current_day = now.day_of_week
+#     ran_today = current_week_km[current_day] > 0
 
-    # Automatically exclude today if already ran
-    days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
-    if len(days_left) == 0:
-        print("Week is over — no remaining days to plan.")
-        return
+#     # Automatically exclude today if already ran
+#     days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
+#     if len(days_left) == 0:
+#         print("Week is over — no remaining days to plan.")
+#         return
 
-    # --- Compute remaining runs ---
-    runs_ran = list(df_week['distance'] / 1000)
-    done_km = sum(runs_ran)
-    remaining = remaining_week_kms(runs_ran, week_target, runs=runs)
-    n_remaining_runs = len(remaining)
+#     # --- Compute remaining runs ---
+#     runs_ran = list(df_week['distance'] / 1000)
+#     done_km = sum(runs_ran)
+#     remaining = remaining_week_kms(runs_ran, week_target, runs=runs)
+#     n_remaining_runs = len(remaining)
 
-    if n_remaining_runs == 0:
-        print("No runs remaining — goal already met!")
-        return
-    if len(days_left) < n_remaining_runs:
-        print(f"IMPOSSIBLE: Only {len(days_left)} days left, need {n_remaining_runs} runs.")
-        return
+#     if n_remaining_runs == 0:
+#         print("No runs remaining — goal already met!")
+#         return
+#     if len(days_left) < n_remaining_runs:
+#         print(f"IMPOSSIBLE: Only {len(days_left)} days left, need {n_remaining_runs} runs.")
+#         return
 
-    # --- Identify already-run days ---
-    run_days = np.where(current_week_km > 0)[0]
-    available_days = list(days_left)
+#     # --- Identify already-run days ---
+#     run_days = np.where(current_week_km > 0)[0]
+#     available_days = list(days_left)
 
-    # --- Smart placement ---
-    plan = current_week_km.copy()
-    highlight = np.zeros(7)
+#     # --- Smart placement ---
+#     plan = current_week_km.copy()
+#     highlight = np.zeros(7)
 
-    last_run_day = run_days.max() if len(run_days) > 0 else -2
-    min_gap = 1  # Prefer at least 1 rest day
+#     last_run_day = run_days.max() if len(run_days) > 0 else -2
+#     min_gap = 1  # Prefer at least 1 rest day
 
-    assign_days = []
+#     assign_days = []
 
-    # First pass: choose well-spaced days
-    for day in available_days:
-        if len(assign_days) >= n_remaining_runs:
-            break
-        if any(abs(day - d) <= min_gap for d in list(run_days) + assign_days):
-            continue
-        assign_days.append(day)
+#     # First pass: choose well-spaced days
+#     for day in available_days:
+#         if len(assign_days) >= n_remaining_runs:
+#             break
+#         if any(abs(day - d) <= min_gap for d in list(run_days) + assign_days):
+#             continue
+#         assign_days.append(day)
 
-    # Second pass: fill remaining slots if needed
-    if len(assign_days) < n_remaining_runs:
-        for day in available_days:
-            if day not in assign_days:
-                assign_days.append(day)
-                if len(assign_days) >= n_remaining_runs:
-                    break
+#     # Second pass: fill remaining slots if needed
+#     if len(assign_days) < n_remaining_runs:
+#         for day in available_days:
+#             if day not in assign_days:
+#                 assign_days.append(day)
+#                 if len(assign_days) >= n_remaining_runs:
+#                     break
 
-    assign_days = sorted(assign_days[:n_remaining_runs])
+#     assign_days = sorted(assign_days[:n_remaining_runs])
 
-    # --- Assign planned runs ---
-    for i, day in enumerate(assign_days):
-        plan[day] = remaining[i]
-        highlight[day] = 1
+#     # --- Assign planned runs ---
+#     for i, day in enumerate(assign_days):
+#         plan[day] = remaining[i]
+#         highlight[day] = 1
 
-    # --- Plot ---
-    barplot(
-        plan,
-        title=f"Week Plan | {runs} runs, target {week_target} km",
-        sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
-        highlight_list=highlight,
-        save_name=save_name
-    )
+#     # --- Plot ---
+#     barplot(
+#         plan,
+#         title=f"Week Plan | {runs} runs, target {week_target} km",
+#         sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
+#         highlight_list=highlight,
+#         save_name=save_name
+#     )
 
-def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None, target_next_week=False):
+def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None, target_next_week=False):
     """
     Plot a realistic weekly running plan considering:
     - Past runs (no back-to-back if avoidable)
@@ -559,9 +559,9 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None, t
         title_week_label = "Current Week"
 
     # --- Filter activities for selected week ---
-    s_weeks = df_activities['start_date'].dt.isocalendar().week
-    s_years = df_activities['start_date'].dt.isocalendar().year
-    df_week = df_activities[
+    s_weeks = df_runs['start_date'].dt.isocalendar().week
+    s_years = df_runs['start_date'].dt.isocalendar().year
+    df_week = df_runs[
         (s_years == target_year) & (s_weeks == target_week)
     ].copy()
 
