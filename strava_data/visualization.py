@@ -152,53 +152,67 @@ def plot_weekly(df_activities: pd.DataFrame, col='risk', save_name=None):
     else:
         plt.close()
 
-def plot_weekly_distance_targets(df_activities: pd.DataFrame, additional_weeks: int = 1, save_name=None):
-    # --- Prepare base data ---
-    df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
-    df_runs = df_activities[
-        (df_activities['type'] == "Run") &
-        (df_activities['start_date'].dt.year >= 2025)
-    ].copy()
+def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float, 
+                                 this_week: pd.Timestamp, this_week_target: float, this_week_volume: float, target_reached: bool,
+                                 additional_weeks: int = 4, last_weeks: int = 7, save_name=None):
+    # # --- Prepare base data ---
+    # df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
+    # df_runs = df_activities[
+    #     (df_activities['type'] == "Run") &
+    #     (df_activities['start_date'].dt.year >= 2025)
+    # ].copy()
     
-    df_runs['distance_km'] = df_runs['distance'] / 1000
-    df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
+    # df_runs['distance_km'] = df_runs['distance'] / 1000
+    # df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
-    weekly = df_runs.groupby('week')['distance_km'].agg(
-        total_volume='sum',
-        long_run='max'
-    ).sort_index()
+    # weekly = df_runs.groupby('week')['distance_km'].agg(
+    #     total_volume='sum',
+    #     long_run='max'
+    # ).sort_index()
 
-    # --- Current week ---
-    now = pd.Timestamp.now(tz=df_runs['start_date'].dt.tz)
-    this_week = now.to_period('W-SUN').end_time
+    # # --- Current week ---
+    # now = pd.Timestamp.now(tz=df_runs['start_date'].dt.tz)
+    # this_week = now.to_period('W-SUN').end_time
 
-    if this_week not in weekly.index:
-        weekly.loc[this_week] = {'total_volume': 0, 'long_run': 0}
-    weekly = weekly.sort_index()
+    # if this_week not in weekly.index:
+    #     weekly.loc[this_week] = {'total_volume': 0, 'long_run': 0}
+    # weekly = weekly.sort_index()
 
-    last_week = weekly.index[-2] if len(weekly) >= 2 else None
-    this_week_volume = weekly.loc[this_week, 'total_volume']
-    last_week_volume = weekly.loc[last_week, 'total_volume'] if last_week else 0
+    # # --- This week and future targets using last 4 completed weeks ---
+    # this_week_volume = weekly.loc[this_week, 'total_volume']
 
-    # --- Determine this week’s target ---
-    this_week_target = last_week_volume * 1.1
-    target_reached = this_week_volume >= this_week_target
+    # # --- Last 4 completed weeks (exclude this week) ---
+    # completed_weeks = weekly.loc[weekly.index < this_week]
+    # recent_completed = completed_weeks.iloc[-4:]
+    # base_completed = recent_completed['total_volume'].max() if len(recent_completed) > 0 else 0
 
-    # --- Define baseline for future growth ---
-    # If target surpassed, we use that as baseline for next targets
-    base_for_growth = max(this_week_target, this_week_volume)
+    # # --- This week target ---
+    # this_week_target = base_completed * 1.1
+    # this_week_volume = weekly.loc[this_week, 'total_volume']
+    # target_reached = this_week_volume >= this_week_target
 
-    # --- Generate progressive weekly targets ---
+    # # --- Base for future growth ---
+    # # If target reached, use max(this week, base_completed); else, start future growth from this_week_target
+    # base_for_growth = this_week_target if not target_reached else max(this_week_volume, this_week_target)
+
+    # # --- Generate progressive future targets ---
+    # targets = []
+    # prev_target = base_for_growth
+    # for i in range(1, additional_weeks + 1):
+    #     week_end = this_week + pd.Timedelta(days=7 * i)
+    #     prev_target *= 1.1
+    #     targets.append((week_end, prev_target))
+
+    # --- Generate progressive future targets ---
     targets = []
-    prev_target = base_for_growth
+    prev_target = week_target
     for i in range(1, additional_weeks + 1):
         week_end = this_week + pd.Timedelta(days=7 * i)
         prev_target *= 1.1
         targets.append((week_end, prev_target))
 
     # --- Recent weeks for plotting ---
-    last_x_weeks = 7
-    recent_weeks = weekly.iloc[-last_x_weeks:].copy()
+    recent_weeks = df_weekly.iloc[-last_weeks:].copy()
     past_weeks = recent_weeks.loc[recent_weeks.index < this_week]
 
     # --- Figure ---
@@ -516,105 +530,6 @@ def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
         highlight_list=highlight,
         save_name=save_name
     )
-
-
-# def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None):
-#     """
-#     Plot a realistic weekly running plan considering:
-#     - Past runs (no back-to-back if avoidable)
-#     - Even spacing between future runs
-#     - Rest days in between if possible
-#     - Automatically excludes today if a run was already done today
-#     - Properly includes Sunday in planning
-#     """
-
-#     # --- Determine current week data (ISO week: Monday–Sunday) ---
-#     s_weeks = df_activities['start_date'].dt.isocalendar().week
-#     s_years = df_activities['start_date'].dt.isocalendar().year
-
-#     now = pd.Timestamp.now()
-#     current_week = now.isocalendar().week
-#     current_year = now.isocalendar().year
-
-#     df_week = df_activities[
-#         (s_years == current_year) & (s_weeks == current_week)
-#     ].copy()
-
-#     df_week['day_of_week'] = df_week['start_date'].dt.day_of_week  # Monday=0, Sunday=6
-
-#     # --- Fill actual distances into 7-day array ---
-#     current_week_km = np.zeros(7)
-#     for _, row in df_week.iterrows():
-#         current_week_km[int(row['day_of_week'])] += row['distance'] / 1000
-
-#     # --- Identify current day ---
-#     current_day = now.day_of_week
-#     ran_today = current_week_km[current_day] > 0
-
-#     # Automatically exclude today if already ran
-#     days_left = np.arange(current_day + 1 if ran_today else current_day, 7)
-#     if len(days_left) == 0:
-#         print("Week is over — no remaining days to plan.")
-#         return
-
-#     # --- Compute remaining runs ---
-#     runs_ran = list(df_week['distance'] / 1000)
-#     done_km = sum(runs_ran)
-#     remaining = remaining_week_kms(runs_ran, week_target, runs=runs)
-#     n_remaining_runs = len(remaining)
-
-#     if n_remaining_runs == 0:
-#         print("No runs remaining — goal already met!")
-#         return
-#     if len(days_left) < n_remaining_runs:
-#         print(f"IMPOSSIBLE: Only {len(days_left)} days left, need {n_remaining_runs} runs.")
-#         return
-
-#     # --- Identify already-run days ---
-#     run_days = np.where(current_week_km > 0)[0]
-#     available_days = list(days_left)
-
-#     # --- Improved smart placement ---
-#     plan = current_week_km.copy()
-#     highlight = np.zeros(7)
-
-#     last_run_day = run_days.max() if len(run_days) > 0 else -2
-#     min_gap = 1  # prefer at least 1 rest day between runs
-
-#     assign_days = []
-
-#     # Pass 1: try to schedule from Sunday backwards to maximize spacing
-#     for day in reversed(available_days):
-#         if len(assign_days) >= n_remaining_runs:
-#             break
-#         if any(abs(day - d) <= min_gap for d in list(run_days) + assign_days):
-#             continue
-#         assign_days.append(day)
-
-#     # Pass 2: fill remaining slots (earlier days)
-#     if len(assign_days) < n_remaining_runs:
-#         for day in available_days:
-#             if day not in assign_days:
-#                 assign_days.append(day)
-#                 if len(assign_days) >= n_remaining_runs:
-#                     break
-
-#     # Sort final day list for consistent plotting
-#     assign_days = sorted(assign_days[:n_remaining_runs])
-
-#     # --- Assign planned runs ---
-#     for i, day in enumerate(assign_days):
-#         plan[day] = remaining[i]
-#         highlight[day] = 1
-
-#     # --- Plot ---
-#     barplot(
-#         plan,
-#         title=f"Week Plan | {runs} runs, target {week_target} km",
-#         sub_title=f"{done_km:.1f} km done, {sum(remaining):.1f} km to go",
-#         highlight_list=highlight,
-#         save_name=save_name
-#     )
 
 def plot_current_week_plan(df_activities, week_target, runs=4, save_name=None, target_next_week=False):
     """
