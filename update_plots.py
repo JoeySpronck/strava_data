@@ -147,7 +147,7 @@ VOLUME_PATTERN = re.compile(r'(\d{2,7})\s*kg\s*volume', re.IGNORECASE)
 
 def _first_int_match(pattern, *texts):
     for t in texts:
-        if not t:
+        if not isinstance(t, str) or not t:
             continue
         m = pattern.search(t)
         if m:
