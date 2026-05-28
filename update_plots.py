@@ -1,4 +1,5 @@
 import importlib
+import re
 import strava_data
 import strava_data.authentication
 import strava_data.visualization
@@ -121,6 +122,167 @@ for runs in [3, 4, 5]:
         runs=runs,
         target_next_week=target_next_week,
         save_name=f'current_week_plan_{runs}_runs.png'
+    )
+
+# --------------------------
+# HIKE & STRENGTH SUPPORT
+# --------------------------
+def fetch_text_fields(client, ids):
+    """Per-id get_activity call → DataFrame of {id, description, private_note}.
+    Required because Strava's summary API doesn't return `private_note`."""
+    rows = []
+    for aid in ids:
+        d = dict(client.get_activity(aid))
+        rows.append({
+            'id': aid,
+            'description': d.get('description'),
+            'private_note': d.get('private_note'),
+        })
+    return pd.DataFrame(rows)
+
+
+KG_PATTERN = re.compile(r'(\d+)\s*kg', re.IGNORECASE)
+VOLUME_PATTERN = re.compile(r'(\d{2,7})\s*kg\s*volume', re.IGNORECASE)
+
+
+def _first_int_match(pattern, *texts):
+    for t in texts:
+        if not t:
+            continue
+        m = pattern.search(t)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+# --------------------------
+# HIKING PLOT
+# --------------------------
+df_hikes = df_activities[
+    (df_activities['type'] == 'Hike') &
+    (df_activities['start_date'].dt.year >= 2025)
+].copy()
+
+if len(df_hikes) > 0:
+    df_hikes['distance_km'] = df_hikes['distance'] / 1000
+    df_hikes['week'] = df_hikes['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
+
+    hike_text = fetch_text_fields(client, df_hikes['id'].tolist())
+    df_hikes = df_hikes.merge(hike_text, on='id', how='left')
+    df_hikes['weight_kg'] = df_hikes.apply(
+        lambda r: _first_int_match(KG_PATTERN, r['name'], r.get('description'), r.get('private_note')) or 0,
+        axis=1,
+    )
+
+    vis.plot_weekly_stacked(
+        df_hikes,
+        stack_col='distance_km',
+        color_col='weight_kg',
+        stack_label='Distance (km)',
+        color_label='Carried weight (kg)',
+        title='Weekly Hiking Distance  |  Carried Weight',
+        save_name='weekly_hike_weight.png',
+    )
+
+# --------------------------
+# STRENGTH PLOT
+# --------------------------
+df_strength = df_activities[
+    (df_activities['type'] == 'WeightTraining') &
+    (df_activities['start_date'].dt.year >= 2025)
+].copy()
+
+if len(df_strength) > 0:
+    df_strength['week'] = df_strength['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
+    df_strength['time_min'] = df_strength['moving_time'] / 60
+
+    strength_text = fetch_text_fields(client, df_strength['id'].tolist())
+    df_strength = df_strength.merge(strength_text, on='id', how='left')
+    df_strength['volume_kg'] = df_strength.apply(
+        lambda r: _first_int_match(VOLUME_PATTERN, r.get('description'), r.get('private_note')),
+        axis=1,
+    )
+
+    # Drop early sessions where volume wasn't logged
+    df_strength = df_strength[df_strength['volume_kg'].notna()].copy()
+
+    if len(df_strength) > 0:
+        df_strength['volume_kg'] = df_strength['volume_kg'].astype(int)
+
+        vis.plot_weekly_stacked(
+            df_strength,
+            stack_col='volume_kg',
+            color_col='time_min',
+            stack_label='Volume (kg)',
+            color_label='Session time (min)',
+            title='Weekly Strength Volume  |  Session Time',
+            save_name='weekly_strength_volume.png',
+        )
+
+# --------------------------
+# CYCLING PLOT
+# --------------------------
+df_rides = df_activities[
+    (df_activities['type'] == 'Ride') &
+    (df_activities['start_date'].dt.year >= 2025)
+].copy()
+
+if len(df_rides) > 0:
+    df_rides['distance_km'] = df_rides['distance'] / 1000
+    df_rides['week'] = df_rides['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
+    df_rides['avg_speed_kmh'] = df_rides['average_speed'] * 3.6
+
+    vis.plot_weekly_stacked(
+        df_rides,
+        stack_col='distance_km',
+        color_col='avg_speed_kmh',
+        stack_label='Distance (km)',
+        color_label='Avg speed (km/h)',
+        title='Weekly Cycling Distance  |  Avg Speed',
+        save_name='weekly_ride_speed.png',
+    )
+
+# --------------------------
+# ALL-SPORTS OVERVIEW
+# --------------------------
+df_runs_overview = df_runs.copy()
+df_runs_overview['avg_speed_kmh'] = df_runs_overview['average_speed'] * 3.6
+
+overview_panels = []
+if len(df_runs_overview) > 0:
+    overview_panels.append(dict(
+        df=df_runs_overview,
+        stack_col='distance_km', color_col='avg_speed_kmh',
+        stack_label='Run km', color_label='km/h',
+        title='Running  |  Avg Speed',
+    ))
+if len(df_rides) > 0:
+    overview_panels.append(dict(
+        df=df_rides,
+        stack_col='distance_km', color_col='avg_speed_kmh',
+        stack_label='Ride km', color_label='km/h',
+        title='Cycling  |  Avg Speed',
+    ))
+if len(df_hikes) > 0:
+    overview_panels.append(dict(
+        df=df_hikes,
+        stack_col='distance_km', color_col='weight_kg',
+        stack_label='Hike km', color_label='kg',
+        title='Hiking  |  Carried Weight',
+    ))
+if len(df_strength) > 0:
+    overview_panels.append(dict(
+        df=df_strength,
+        stack_col='volume_kg', color_col='time_min',
+        stack_label='Volume kg', color_label='min',
+        title='Strength  |  Session Time',
+    ))
+
+if overview_panels:
+    vis.plot_weekly_stacked_multi(
+        overview_panels,
+        panel_height=1.5,
+        save_name='weekly_overview_all_sports.png',
     )
 
 print("All plots updated and saved to the plots/ folder.")

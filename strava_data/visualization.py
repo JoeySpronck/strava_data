@@ -51,68 +51,83 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.rcParams["font.family"] = STYLE["font_family"]
     return fig, ax
 
-def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
-    """
-    Plot weekly stacked bars colored by 'distance', 'pace', or 'risk'.
+def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None):
+    """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm)."""
+    if color_seq is None:
+        color_seq = STYLE["color_seq_distance"]
 
-    Parameters:
-        df_runs (pd.DataFrame): activity data with 'start_date', 'type', 'distance', 'average_speed'
-        col (str): 'distance', 'pace', or 'risk'
-    """
-    # --- Filter runs ---
-    # df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
-    # df_runs = df_activities[(df_activities['type'] == "Run") & (df_activities['start_date'].dt.year >= 2025)].copy()
-    # df_runs['distance_km'] = df_runs['distance'] / 1000
-    # df_runs['week'] = df_runs['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
-
-    # --- Determine coloring ---
-    if col == 'distance':
-        cmap = mcolors.LinearSegmentedColormap.from_list('distance_map', STYLE["color_seq_distance"])
-        vmin, vmax = df_runs['distance_km'].min(), df_runs['distance_km'].max()
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-        values = df_runs['distance_km']
-        cbar_label = 'Distance per run (km)'
-
-    elif col == 'pace':
-        df_runs['pace_min_per_km'] = (1000 / df_runs['average_speed']) / 60
-        cmap = mcolors.LinearSegmentedColormap.from_list('pace_map', STYLE["color_seq_pace"])
-        avg_pace = df_runs['pace_min_per_km'].mean()
-        vmin, vmax = df_runs['pace_min_per_km'].min(), df_runs['pace_min_per_km'].max()
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=avg_pace, vmax=vmax)
-        values = df_runs['pace_min_per_km']
-        cbar_label = 'Pace (min/km)'
-        format_colorbar = lambda x, pos: f"{int(x)}:{int((x - int(x)) * 60):02d}"  # mm:ss format
-
-    elif col == 'risk':
-        scaler = StandardScaler()
-        df_runs[['dist_z', 'speed_z']] = scaler.fit_transform(df_runs[['distance_km', 'average_speed']])
-        df_runs['risk_zscore'] = df_runs['dist_z'] + df_runs['speed_z']
-        cmap = mcolors.LinearSegmentedColormap.from_list('risk_map', STYLE["color_seq_risk"])
-        vmin, vmax = df_runs['risk_zscore'].min(), df_runs['risk_zscore'].max()
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
-        values = df_runs['risk_zscore']
-        cbar_label = 'Risk Z-score'
-
+    cmap = mcolors.LinearSegmentedColormap.from_list('weekly_map', color_seq)
+    values = df[color_col]
+    vmin, vmax = values.min(), values.max()
+    if norm_center is not None:
+        # TwoSlopeNorm requires strict vmin < vcenter < vmax
+        eps = 1e-9
+        lo = min(vmin, norm_center - eps)
+        hi = max(vmax, norm_center + eps)
+        norm = mcolors.TwoSlopeNorm(vmin=lo, vcenter=norm_center, vmax=hi)
     else:
-        raise ValueError("col must be 'distance', 'pace', or 'risk'")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    # --- Figure ---
-    fig, ax = setup_figure()
-
-    # --- Stacked bars per week ---
-    for week, group in df_runs.groupby('week', sort=True):
+    for week, group in df.groupby('week', sort=True):
         bottom = 0
         for _, row in group.iterrows():
             ax.bar(
                 week,
-                row['distance_km'],
+                row[stack_col],
                 bottom=bottom,
                 width=STYLE["bar_width"],
                 color=cmap(norm(values.loc[row.name])),
                 linewidth=STYLE["bar_linewidth"],
                 edgecolor=STYLE["bar_edge_color"]
             )
-            bottom += row['distance_km']
+            bottom += row[stack_col]
+    return cmap, norm
+
+
+def _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=None, label_fontsize=None, tick_fontsize=None):
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cbar = plt.colorbar(sm, ax=ax, pad=0.02)
+    cbar.set_label(color_label, color=STYLE["text_color"], fontsize=label_fontsize)
+    cbar.ax.yaxis.set_tick_params(color=STYLE["text_color"], labelsize=tick_fontsize)
+    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=STYLE["text_color"])
+    if color_format_fn is not None:
+        cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(color_format_fn))
+    return cbar
+
+
+def plot_weekly_stacked(
+    df: pd.DataFrame,
+    stack_col: str,
+    color_col: str,
+    stack_label: str,
+    color_label: str,
+    title: str,
+    color_seq=None,
+    norm_center=None,
+    color_format_fn=None,
+    save_name=None,
+):
+    """
+    Plot weekly stacked bars where each segment is one activity.
+
+    Each bar (one per week) stacks `stack_col` values; segments are colored by `color_col`.
+    Works for any activity type as long as the dataframe carries a 'week' column.
+
+    Parameters:
+        df (pd.DataFrame): activities with a 'week' column plus `stack_col` and `color_col`.
+        stack_col (str): column whose values determine bar segment heights.
+        color_col (str): column whose values determine segment colors.
+        stack_label (str): y-axis label.
+        color_label (str): colorbar label.
+        title (str): figure title.
+        color_seq (list[str] | None): colors for the colormap (low → high). Defaults to dark→neutral→main.
+        norm_center (float | None): if set, use a TwoSlopeNorm centered here; otherwise linear.
+        color_format_fn: optional matplotlib tick formatter callable for the colorbar.
+        save_name (str | None): if set, saves the plot under SAVE_FOLDER.
+    """
+    fig, ax = setup_figure()
+    cmap, norm = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq, norm_center)
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -120,10 +135,10 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     ax.tick_params(axis='x', colors=STYLE["text_color"], rotation=45)
     ax.tick_params(axis='y', colors=STYLE["text_color"])
     ax.set_xlabel('Month', color=STYLE["text_color"], labelpad=8)
-    ax.set_ylabel('Distance (km)', color=STYLE["text_color"], labelpad=8)
+    ax.set_ylabel(stack_label, color=STYLE["text_color"], labelpad=8)
 
     ax.set_title(
-        f'Weekly Distance Stacked per Run  |  {col.capitalize()}',
+        title,
         color=STYLE["highlight_color"],
         fontsize=STYLE["title_fontsize"],
         weight=STYLE["title_weight"],
@@ -131,26 +146,170 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     )
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
-    # --- Colorbar ---
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
-    sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax, pad=0.02)
-    cbar.set_label(cbar_label, color=STYLE["text_color"])
-    cbar.ax.yaxis.set_tick_params(color=STYLE["text_color"])
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=STYLE["text_color"])
-
-    # Special formatting for pace colorbar
-    if col == 'pace':
-        cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(format_colorbar))
+    _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=color_format_fn)
 
     plt.tight_layout()
     if save_name:
         plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
-    
+
     if SHOW_PLOTS:
         plt.show()
     else:
         plt.close()
+
+
+def plot_weekly_stacked_multi(
+    panels,
+    save_name=None,
+    panel_height=1.6,
+    width=None,
+    suptitle=None,
+):
+    """
+    Render multiple weekly-stacked sport panels stacked vertically in one figure.
+
+    Each panel renders the same way as `plot_weekly_stacked`, but with a slimmer
+    y-axis and a shared x-axis so the weeks line up across sports.
+
+    Parameters:
+        panels (list[dict]): one dict per panel. Required keys:
+            df, stack_col, color_col, stack_label, color_label, title.
+          Optional keys:
+            color_seq, norm_center, color_format_fn.
+        panel_height (float): height in inches per panel (default 1.6).
+        width (float | None): figure width; defaults to STYLE['width_large'].
+        suptitle (str | None): figure-level title above all panels.
+        save_name (str | None): if set, saves the plot under SAVE_FOLDER.
+    """
+    n = len(panels)
+    if width is None:
+        width = STYLE["width_large"]
+
+    plt.style.use('dark_background')
+    fig, axes = plt.subplots(n, 1, figsize=(width, panel_height * n + 0.6), sharex=True)
+    fig.patch.set_facecolor(STYLE["background_color"])
+    plt.rcParams["font.family"] = STYLE["font_family"]
+    if n == 1:
+        axes = [axes]
+
+    # Shared x-range across all panels so weeks align.
+    all_weeks = pd.concat([p['df']['week'] for p in panels if len(p['df']) > 0])
+    if len(all_weeks) > 0:
+        xmin, xmax = all_weeks.min(), all_weeks.max()
+    else:
+        xmin = xmax = pd.Timestamp.now()
+
+    for i, panel in enumerate(panels):
+        ax = axes[i]
+        ax.set_facecolor(STYLE["background_color"])
+
+        df = panel['df']
+        if len(df) > 0:
+            cmap, norm = _draw_weekly_stacked(
+                ax, df,
+                panel['stack_col'], panel['color_col'],
+                color_seq=panel.get('color_seq'),
+                norm_center=panel.get('norm_center'),
+            )
+            _attach_colorbar(
+                ax, cmap, norm, panel['color_label'],
+                color_format_fn=panel.get('color_format_fn'),
+                label_fontsize=STYLE["small_fontsize"],
+                tick_fontsize=STYLE["small_fontsize"],
+            )
+
+        ax.set_ylabel(panel['stack_label'], color=STYLE["text_color"], fontsize=STYLE["small_fontsize"], labelpad=6)
+        ax.tick_params(axis='y', colors=STYLE["text_color"], labelsize=STYLE["small_fontsize"])
+        ax.set_title(
+            panel['title'],
+            color=STYLE["highlight_color"],
+            fontsize=STYLE["subtitle_fontsize"],
+            weight=STYLE["title_weight"],
+            pad=4,
+        )
+        ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
+        ax.set_xlim(xmin - pd.Timedelta(days=5), xmax + pd.Timedelta(days=5))
+
+    # Bottom axis: month tick labels only
+    bottom_ax = axes[-1]
+    bottom_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+    bottom_ax.xaxis.set_major_locator(mdates.MonthLocator())
+    bottom_ax.tick_params(axis='x', colors=STYLE["text_color"], rotation=45, labelsize=STYLE["small_fontsize"])
+    bottom_ax.set_xlabel('Month', color=STYLE["text_color"], labelpad=4, fontsize=STYLE["small_fontsize"])
+
+    if suptitle:
+        fig.suptitle(
+            suptitle,
+            color=STYLE["highlight_color"],
+            fontsize=STYLE["title_fontsize"],
+            weight=STYLE["title_weight"],
+        )
+
+    plt.tight_layout()
+    if save_name:
+        plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
+
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close()
+
+
+def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
+    """
+    Plot weekly stacked run bars colored by 'distance', 'pace', or 'risk'.
+
+    Thin wrapper over `plot_weekly_stacked` that sets the run-specific stack column
+    (distance_km) and configures the chosen color dimension.
+
+    Parameters:
+        df_runs (pd.DataFrame): runs with 'week', 'distance_km', 'average_speed'.
+        col (str): 'distance', 'pace', or 'risk'.
+    """
+    if col == 'distance':
+        plot_weekly_stacked(
+            df_runs,
+            stack_col='distance_km',
+            color_col='distance_km',
+            stack_label='Distance (km)',
+            color_label='Distance per run (km)',
+            title='Weekly Distance Stacked per Run  |  Distance',
+            color_seq=STYLE["color_seq_distance"],
+            save_name=save_name,
+        )
+    elif col == 'pace':
+        df_runs = df_runs.copy()
+        df_runs['pace_min_per_km'] = (1000 / df_runs['average_speed']) / 60
+        plot_weekly_stacked(
+            df_runs,
+            stack_col='distance_km',
+            color_col='pace_min_per_km',
+            stack_label='Distance (km)',
+            color_label='Pace (min/km)',
+            title='Weekly Distance Stacked per Run  |  Pace',
+            color_seq=STYLE["color_seq_pace"],
+            norm_center=df_runs['pace_min_per_km'].mean(),
+            color_format_fn=lambda x, pos: f"{int(x)}:{int((x - int(x)) * 60):02d}",
+            save_name=save_name,
+        )
+    elif col == 'risk':
+        df_runs = df_runs.copy()
+        scaler = StandardScaler()
+        df_runs[['dist_z', 'speed_z']] = scaler.fit_transform(df_runs[['distance_km', 'average_speed']])
+        df_runs['risk_zscore'] = df_runs['dist_z'] + df_runs['speed_z']
+        plot_weekly_stacked(
+            df_runs,
+            stack_col='distance_km',
+            color_col='risk_zscore',
+            stack_label='Distance (km)',
+            color_label='Risk Z-score',
+            title='Weekly Distance Stacked per Run  |  Risk',
+            color_seq=STYLE["color_seq_risk"],
+            norm_center=0,
+            save_name=save_name,
+        )
+    else:
+        raise ValueError("col must be 'distance', 'pace', or 'risk'")
 
 def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float, 
                                  this_week: pd.Timestamp, this_week_target: float, this_week_volume: float, target_reached: bool,

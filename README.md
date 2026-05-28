@@ -59,4 +59,32 @@ This repository tracks running progress and training plans. All data are updated
 </p>
 
 ---
+### 🚴 Cycling
+> Each bar = one week. Each stack segment = one ride — height is distance, color is average speed (km/h).
+<p align="left">
+  <img src="plots/weekly_ride_speed.png" alt="Weekly cycling" width="800">
+</p>
+
+---
+### 🥾 Hiking
+> Each bar = one week. Each stack segment = one hike — height is distance, color is carried weight (kg, parsed from title / description / private note; 0 if not reported).
+<p align="left">
+  <img src="plots/weekly_hike_weight.png" alt="Weekly hiking" width="800">
+</p>
+
+---
+### 🏋️ Strength
+> Each bar = one week. Each stack segment = one session — height is total volume (kg), color is session time (min). Volume is parsed from `NNNN kg volume` in description / private note.
+<p align="left">
+  <img src="plots/weekly_strength_volume.png" alt="Weekly strength" width="800">
+</p>
+
+---
+### 🏃🚴🥾🏋️ All-Sports Overview
+> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and session time (strength).
+<p align="left">
+  <img src="plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" width="800">
+</p>
+
+---
 
