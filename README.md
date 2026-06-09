@@ -87,4 +87,20 @@ This repository tracks running progress and training plans. All data are updated
 </p>
 
 ---
+### 📅 Monthly Activity Calendar
+> Strava-style month view. Each day is a circle; days with an activity are filled, days without show an outlined ring with the date. Circle **color** uses the same dark→white→orange metric scale as the overview (avg speed for run/ride, carried weight for hike, session time for strength), and circle **size** encodes the same magnitude as the overview bar heights (distance, or volume for strength). The centered letter marks the sport — **T**=trail, **R**=run, **H**=hike, **S**=strength, **B**=bike — and extra activities on the same day appear as smaller circles in the upper-right corner.
+>
+> Every month with activity is archived in [`plots/month_plots/`](plots/month_plots/README.md) (latest on top).
+
+#### This month
+<p align="left">
+  <img src="plots/month_calendar.png" alt="This month's activity calendar" width="450">
+</p>
+
+#### Previous month
+<p align="left">
+  <img src="plots/month_calendar_prev.png" alt="Previous month's activity calendar" width="450">
+</p>
+
+---
 

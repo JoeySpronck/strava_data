@@ -27,15 +27,23 @@ def get_activity_data(activity):
                  'total_elevation_gain', 'start_date', 'start_latlng', 'kilojoules',
                  'average_heartrate', 'max_heartrate', 'elev_high', 'elev_low',
                  'average_speed', 'max_speed']
-    return {k: activity_dict[k] for k in col_names}
+    row = {k: activity_dict[k] for k in col_names}
+    # sport_type distinguishes trail runs (type is the legacy 'Run' for both); start_date_local
+    # gives the correct calendar day. Both are optional in the summary payload, so .get them.
+    row['sport_type'] = activity_dict.get('sport_type')
+    row['start_date_local'] = activity_dict.get('start_date_local')
+    return row
 
 df_activities = pd.DataFrame([get_activity_data(a) for a in activities])
 
 # --------------------------
 # RESET PLOT FOLDER
 # --------------------------
-for file in os.listdir('plots'):
-    os.remove(os.path.join('plots', file))
+# Wipe and recreate so stale plots (and the month_plots/ subfolder) never linger.
+import shutil
+if os.path.isdir('plots'):
+    shutil.rmtree('plots')
+os.makedirs('plots', exist_ok=True)
 
 # --------------------------
 # PREPARE RUN DATA
@@ -282,6 +290,117 @@ if overview_panels:
         panel_height=1.5,
         save_name='weekly_overview_all_sports.png',
     )
+
+# --------------------------
+# MONTH CALENDAR (Strava-style)
+# --------------------------
+# One row per activity: circle COLOR = its sport's color metric through the shared
+# overview colormap (normalized within the sport); circle SIZE = the same magnitude that
+# drives the overview bar heights (distance_km, or volume_kg for strength). The (size, color)
+# metrics below mirror the overview panels exactly so the calendar reads consistently.
+import matplotlib.colors as mcolors
+
+cal_cmap = vis.metric_colormap()  # shared dark→white→orange metric colormap
+
+
+def _metric_colors(values):
+    """RGBA per value via the shared colormap, normalized within this sport's range."""
+    v = pd.to_numeric(values, errors='coerce').to_numpy(dtype=float)
+    finite = v[np.isfinite(v)]
+    if finite.size == 0:
+        return [cal_cmap(0.5)] * len(v)
+    lo, hi = float(finite.min()), float(finite.max())
+    if hi <= lo:
+        return [cal_cmap(0.5)] * len(v)
+    norm = mcolors.Normalize(lo, hi)
+    return [cal_cmap(norm(x)) if np.isfinite(x) else cal_cmap(0.5) for x in v]
+
+
+def _cal_date(row):
+    """Local calendar day for an activity (start_date_local if present, else UTC start_date)."""
+    d = row.get('start_date_local')
+    if pd.isna(d):
+        d = row['start_date']
+    return pd.Timestamp(d).replace(tzinfo=None)
+
+
+cal_rows = []
+
+# Runs (incl. trail runs): size = distance_km, color = avg speed. Letter T for trail else R.
+if len(df_runs) > 0:
+    runs_cal = df_runs.copy()
+    runs_cal['avg_speed_kmh'] = runs_cal['average_speed'] * 3.6
+    is_trail = runs_cal['sport_type'].astype(str).str.contains('Trail', case=False, na=False)
+    colors = _metric_colors(runs_cal['avg_speed_kmh'])
+    for (_, row), color, trail in zip(runs_cal.iterrows(), colors, is_trail):
+        cal_rows.append(dict(
+            date=_cal_date(row), sport='trail' if trail else 'run',
+            size_value=row['distance_km'], color=color,
+        ))
+
+# Cycling: size = distance_km, color = avg speed.
+if len(df_rides) > 0:
+    colors = _metric_colors(df_rides['avg_speed_kmh'])
+    for (_, row), color in zip(df_rides.iterrows(), colors):
+        cal_rows.append(dict(
+            date=_cal_date(row), sport='bike',
+            size_value=row['distance_km'], color=color,
+        ))
+
+# Hiking: size = distance_km, color = carried weight.
+if len(df_hikes) > 0:
+    colors = _metric_colors(df_hikes['weight_kg'])
+    for (_, row), color in zip(df_hikes.iterrows(), colors):
+        cal_rows.append(dict(
+            date=_cal_date(row), sport='hike',
+            size_value=row['distance_km'], color=color,
+        ))
+
+# Strength: size = volume_kg, color = session time.
+if len(df_strength) > 0:
+    colors = _metric_colors(df_strength['time_min'])
+    for (_, row), color in zip(df_strength.iterrows(), colors):
+        cal_rows.append(dict(
+            date=_cal_date(row), sport='strength',
+            size_value=row['volume_kg'], color=color,
+        ))
+
+df_cal = pd.DataFrame(cal_rows)
+
+if len(df_cal) > 0:
+    df_cal['date'] = pd.to_datetime(df_cal['date'])
+    # Non-empty months present in the data, oldest → newest (skip months with no activity).
+    months = sorted({(d.year, d.month) for d in df_cal['date']})
+
+    month_dir = os.path.join('plots', 'month_plots')
+    os.makedirs(month_dir, exist_ok=True)
+
+    # One calendar per non-empty month → plots/month_plots/YYYY-MM.png
+    for (y, m) in months:
+        vis.plot_month_calendar(
+            df_cal, year=y, month=m,
+            save_name=os.path.join('month_plots', f'{y}-{m:02d}.png'),
+        )
+
+    # Index README for the month_plots folder — latest month on top, oldest at the bottom.
+    lines = [
+        "# Monthly Activity Calendars",
+        "",
+        "Auto-generated by `update_plots.py`. Latest month on top.",
+        "",
+    ]
+    for (y, m) in reversed(months):
+        label = pd.Timestamp(year=y, month=m, day=1).strftime('%B %Y')
+        lines += [f"### {label}", "", f"![{label}]({y}-{m:02d}.png)", ""]
+    with open('CALENDAR_PLOTS.md', 'w') as f:
+        f.write('\n'.join(lines).rstrip() + '\n')
+
+    # Stable filenames for the root README: the two most recent non-empty months.
+    latest_y, latest_m = months[-1]
+    vis.plot_month_calendar(df_cal, year=latest_y, month=latest_m, save_name='month_calendar.png')
+    if len(months) >= 2:
+        prev_y, prev_m = months[-2]
+        vis.plot_month_calendar(df_cal, year=prev_y, month=prev_m, save_name='month_calendar_prev.png')
 
 print("All plots updated and saved to the plots/ folder.")
 print("DONE")

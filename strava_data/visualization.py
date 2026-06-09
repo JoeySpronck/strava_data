@@ -1,8 +1,10 @@
 import os
+import calendar as _calendar
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
+from matplotlib.patches import Circle, FancyBboxPatch
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 plt.rc('axes', axisbelow=True)
@@ -16,6 +18,7 @@ COLORS = {
     "main": "#FB5200", # strava orange
     "neutral": "#FFFFFF",
     "dark": "#555555",
+    "darker": "#2E2E2E",  # faint rings (e.g. empty calendar days) on the black background
 }
 
 STYLE = {
@@ -43,6 +46,58 @@ STYLE = {
     "color_seq_risk": [COLORS["dark"], COLORS["neutral"], COLORS["main"]],      # low → neutral → high
 }
 
+# === MONTH CALENDAR SETTINGS ===
+# Strava-style month overview. Circle COLOR reuses the shared dark→white→orange metric
+# colormap (the exact one the multisport overview uses): each activity is colored by its
+# sport's color metric (run/bike avg speed, hike carried weight, strength session time),
+# normalized within that sport. Circle SIZE encodes the same magnitude that drives the
+# overview bar heights (distance_km, or volume_kg for strength). The letter encodes sport.
+SPORT_LETTERS = {
+    "trail": "T",
+    "run": "R",
+    "hike": "H",
+    "strength": "S",
+    "bike": "B",
+}
+
+CALENDAR = {
+    # Displayed circle radius bounds, in calendar-cell units (a day cell is 1×1, so keep
+    # the max below 0.5 to stay inside the cell).
+    "circle_min_radius": 0.16,
+    "circle_max_radius": 0.40,
+    # "sqrt" balances perceived area so big days don't dominate; "linear" maps straight.
+    "size_scaling": "sqrt",
+    # Per-sport magnitude (same metric as the overview bar height) mapping to the min / max
+    # circle radius. Values below min clamp to the smallest circle, above max to the largest.
+    "trail_size_min_value": 5,       "trail_size_max_value": 25,
+    "run_size_min_value": 5,         "run_size_max_value": 25,
+    "bike_size_min_value": 10,       "bike_size_max_value": 80,
+    "hike_size_min_value": 5,        "hike_size_max_value": 20,
+    "strength_size_min_value": 2000, "strength_size_max_value": 12000,
+    # Same-day extra activities: smaller circles marching from the upper-right corner so
+    # 3+ activities on one day still lay out cleanly.
+    "secondary_size_mult": 0.55,
+    "secondary_offset_x": 0.30,
+    "secondary_offset_y": 0.30,
+    "secondary_step_x": -0.20,
+    "secondary_step_y": 0.0,
+    # Outlined ring + day number for days without any activity (ring kept very dark).
+    "empty_circle_radius": 0.34,
+    "empty_circle_color": COLORS["darker"],
+    "future_color": "#1C1C1C",  # days still to come: ring + number even darker than empty
+    "today_highlight_color": COLORS["main"],  # rounded square behind today
+    "today_corner_radius": 0.18,
+    "day_number_fontsize": 9,  # day numbers on empty days stay small/subtle
+    # Sport letters scale with their circle: fontsize = radius * ratio (floored so the
+    # smallest circles stay legible). Bump the ratio for bigger letters.
+    "letter_size_ratio": 62,
+    "letter_min_fontsize": 7,
+    "weekday_fontsize": 12,    # Mon/Tue/... column headers
+    "legend_fontsize": 9,      # bottom legend
+    "border_width": 1.4,
+}
+
+
 def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.style.use('dark_background')
     fig, ax = plt.subplots(figsize=(width, height))
@@ -51,12 +106,20 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.rcParams["font.family"] = STYLE["font_family"]
     return fig, ax
 
-def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None):
-    """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm)."""
+def metric_colormap(color_seq=None):
+    """The shared dark→white→orange metric colormap used across the weekly plots.
+
+    Centralized so the month calendar colors activities through the exact same colormap
+    as the multisport overview. Defaults to STYLE['color_seq_distance'] (dark→neutral→main).
+    """
     if color_seq is None:
         color_seq = STYLE["color_seq_distance"]
+    return mcolors.LinearSegmentedColormap.from_list('weekly_map', color_seq)
 
-    cmap = mcolors.LinearSegmentedColormap.from_list('weekly_map', color_seq)
+
+def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None):
+    """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm)."""
+    cmap = metric_colormap(color_seq)
     values = df[color_col]
     vmin, vmax = values.min(), values.max()
     if norm_center is not None:
@@ -830,3 +893,273 @@ def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None, target_
         highlight_list=highlight,
         save_name=save_name
     )
+
+
+def _calendar_radius(value, sport):
+    """Map an activity magnitude to a circle radius using CALENDAR settings.
+
+    Reuses the per-sport min/max *value* range and the global min/max *radius*, scaling
+    either 'linear' or 'sqrt'. Values outside the range clamp to the end circle sizes, so
+    a tiny activity is never smaller than circle_min_radius and a huge one never larger
+    than circle_max_radius.
+    """
+    lo = CALENDAR[f"{sport}_size_min_value"]
+    hi = CALENDAR[f"{sport}_size_max_value"]
+    r_min = CALENDAR["circle_min_radius"]
+    r_max = CALENDAR["circle_max_radius"]
+
+    if value is None or not np.isfinite(value):
+        return r_min
+    if hi <= lo:
+        frac = 1.0
+    else:
+        frac = (min(max(value, lo), hi) - lo) / (hi - lo)  # clamp to [0, 1]
+    if CALENDAR["size_scaling"] == "sqrt":
+        frac = np.sqrt(frac)
+    return r_min + frac * (r_max - r_min)
+
+
+def _text_color_for(rgba):
+    """Pick black or white letter color for legibility on a given circle fill."""
+    r, g, b = rgba[:3]  # matplotlib RGBA components are already 0..1
+    luminance = 0.299 * r + 0.587 * g + 0.114 * b
+    return "#000000" if luminance > 0.55 else STYLE["neutral_color"]
+
+
+def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_weekday=0, today=None):
+    """
+    Strava-style month overview: a calendar grid where each day is a circle.
+
+    Days without activities show an outlined ring with the day number centered. Days with
+    activities show a filled circle whose COLOR comes from the shared metric colormap (the
+    same one the multisport overview uses) and whose SIZE encodes the activity magnitude
+    (the same metric as the overview bar heights), with the sport letter centered. Extra
+    activities on the same day become smaller circles marching from the upper-right corner,
+    so 3+ activities on one day still lay out cleanly.
+
+    Parameters:
+        df_cal (pd.DataFrame): one row per activity, with columns:
+            'date'       — datetime-like; the day the activity falls on.
+            'sport'      — key in SPORT_LETTERS ('run'/'trail'/'hike'/'strength'/'bike').
+            'size_value' — magnitude metric (distance_km, or volume_kg for strength) → size.
+            'color'      — RGBA tuple (from metric_colormap) → circle fill.
+        year, month (int): month to render.
+        title (str | None): figure title; defaults to "Month YYYY".
+        first_weekday (int): 0 = Monday (default), 6 = Sunday.
+        save_name (str | None): if set, saves under SAVE_FOLDER.
+        today (datetime-like | None): reference "today" used to highlight the current day
+            and dim still-to-come days; defaults to the current date.
+    """
+    today = pd.Timestamp.now() if today is None else pd.Timestamp(today)
+    today_tuple = (today.year, today.month)
+
+    def _day_status(day):
+        """Return 'today', 'future', or 'past' for a day in the rendered month."""
+        if (year, month) == today_tuple:
+            if day == today.day:
+                return 'today'
+            return 'future' if day > today.day else 'past'
+        return 'future' if (year, month) > today_tuple else 'past'
+
+    cal = _calendar.Calendar(firstweekday=first_weekday)
+    weeks = cal.monthdayscalendar(year, month)  # list of weeks; each a list of 7 day nums (0 = padding)
+    n_rows = len(weeks)
+
+    # --- Index activities by day-of-month for the requested month ---
+    by_day = {}
+    if df_cal is not None and len(df_cal) > 0:
+        dts = pd.to_datetime(df_cal['date'])
+        mask = (dts.dt.year == year) & (dts.dt.month == month)
+        for (_, row), day in zip(df_cal[mask].iterrows(), dts[mask].dt.day):
+            by_day.setdefault(int(day), []).append(row)
+
+    # --- Figure (square cells via equal aspect); extra bottom room for the legend table ---
+    legend_h = 2.8  # data-unit height reserved below the grid for the legend table
+    data_w, data_h = 7.0, n_rows + 1.0 + legend_h  # xlim spans 7; ylim spans this
+    fig_w = 7.5
+    plt.style.use('dark_background')
+    fig, ax = plt.subplots(figsize=(fig_w, fig_w * data_h / data_w))
+    fig.patch.set_facecolor(STYLE["background_color"])
+    ax.set_facecolor(STYLE["background_color"])
+    plt.rcParams["font.family"] = STYLE["font_family"]
+
+    grid_bottom = -(n_rows - 0.5)
+    ax.set_xlim(-0.5, 6.5)
+    ax.set_ylim(grid_bottom - legend_h, 1.5)
+    ax.set_aspect('equal')
+    ax.axis('off')
+
+    def _letter_fontsize(radius):
+        """Font size that scales with the circle radius, floored for legibility."""
+        return max(radius * CALENDAR["letter_size_ratio"], CALENDAR["letter_min_fontsize"])
+
+    # Glyphs we want geometrically centered in their circle. We can't know a glyph's
+    # rendered extent before layout, so we collect (text_artist, target_xy) here and
+    # nudge each onto its target after a draw pass (see _recenter below).
+    centered = []
+
+    # --- Weekday headers ---
+    for col in range(7):
+        ax.text(
+            col, 1.0, _calendar.day_abbr[(first_weekday + col) % 7],
+            ha='center', va='center',
+            color=STYLE["text_color"], fontsize=CALENDAR["weekday_fontsize"], weight='bold',
+        )
+
+    # --- Day cells ---
+    for r, week in enumerate(weeks):
+        cy = -r
+        for col, day in enumerate(week):
+            if day == 0:
+                continue  # padding day from an adjacent month
+            cx = col
+            acts = by_day.get(day, [])
+            status = _day_status(day)
+
+            # Rounded orange square behind today's cell.
+            if status == 'today':
+                side = 0.88
+                ax.add_patch(FancyBboxPatch(
+                    (cx - side / 2, cy - side / 2), side, side,
+                    boxstyle=f"round,pad=0,rounding_size={CALENDAR['today_corner_radius']}",
+                    facecolor=CALENDAR["today_highlight_color"], edgecolor='none', zorder=1,
+                ))
+
+            if not acts:
+                # Empty day: outlined ring + number. Future days are dimmed even darker;
+                # today (always activity-less here) shows a readable number on the orange.
+                if status == 'future':
+                    ring_color = num_color = CALENDAR["future_color"]
+                elif status == 'today':
+                    ring_color = None
+                    num_color = STYLE["neutral_color"]
+                else:
+                    ring_color = CALENDAR["empty_circle_color"]
+                    num_color = STYLE["text_color"]
+                if ring_color is not None:
+                    ax.add_patch(Circle(
+                        (cx, cy), CALENDAR["empty_circle_radius"],
+                        facecolor='none', edgecolor=ring_color,
+                        linewidth=CALENDAR["border_width"], zorder=2,
+                    ))
+                t = ax.text(
+                    cx, cy, str(day), ha='center', va='center',
+                    color=num_color, fontsize=CALENDAR["day_number_fontsize"], zorder=3,
+                )
+                centered.append((t, (cx, cy)))
+                continue
+
+            # Primary = largest magnitude; the rest become secondary circles.
+            acts = sorted(
+                acts,
+                key=lambda a: a['size_value'] if pd.notna(a['size_value']) else 0,
+                reverse=True,
+            )
+            primary = acts[0]
+            r_primary = _calendar_radius(primary['size_value'], primary['sport'])
+            ax.add_patch(Circle(
+                (cx, cy), r_primary,
+                facecolor=primary['color'], edgecolor=STYLE["bar_edge_color"],
+                linewidth=CALENDAR["border_width"], zorder=2,
+            ))
+            t = ax.text(
+                cx, cy, SPORT_LETTERS.get(primary['sport'], '?'),
+                ha='center', va='center',
+                color=_text_color_for(primary['color']),
+                fontsize=_letter_fontsize(r_primary), weight='bold', zorder=3,
+            )
+            centered.append((t, (cx, cy)))
+
+            # Secondary activities march from the upper-right corner (robust for 3+).
+            for i, act in enumerate(acts[1:]):
+                sx = cx + CALENDAR["secondary_offset_x"] + i * CALENDAR["secondary_step_x"]
+                sy = cy + CALENDAR["secondary_offset_y"] + i * CALENDAR["secondary_step_y"]
+                rs = _calendar_radius(act['size_value'], act['sport']) * CALENDAR["secondary_size_mult"]
+                ax.add_patch(Circle(
+                    (sx, sy), rs,
+                    facecolor=act['color'], edgecolor=STYLE["background_color"],
+                    linewidth=CALENDAR["border_width"] * 0.7, zorder=4,
+                ))
+                t = ax.text(
+                    sx, sy, SPORT_LETTERS.get(act['sport'], '?'),
+                    ha='center', va='center',
+                    color=_text_color_for(act['color']),
+                    fontsize=_letter_fontsize(rs), weight='bold', zorder=5,
+                )
+                centered.append((t, (sx, sy)))
+
+    # --- Legend table (index letter | Activity | Size | Color) + metric colorbar ---
+    fs = CALENDAR["legend_fontsize"]
+    col_x = {"letter": 0.5, "activity": 1.1, "size": 2.9, "color": 4.2}
+    rows_tbl = [
+        ("T", "Trail Run", "Distance", "Speed"),
+        ("R", "Run",       "Distance", "Speed"),
+        ("H", "Hike",      "Distance", "Carried weight"),
+        ("S", "Strength",  "Volume",   "Session time"),
+        ("B", "Bike",      "Distance", "Speed"),
+    ]
+    row_step = 0.34
+    table_top = grid_bottom - 0.55
+
+    # Header row (the index/letter column header stays empty).
+    for key, label in (("activity", "Activity"), ("size", "Size"), ("color", "Color")):
+        ax.text(col_x[key], table_top, label, ha='left', va='center',
+                color=STYLE["text_color"], fontsize=fs, weight='bold')
+    # Faint rule under the header.
+    ax.plot([col_x["letter"] - 0.25, 6.0], [table_top - row_step * 0.5] * 2,
+            color=STYLE["grid_color"], alpha=0.5, linewidth=0.8, zorder=2)
+
+    for i, (letter, activity, size_m, color_m) in enumerate(rows_tbl, start=1):
+        y = table_top - i * row_step
+        ax.text(col_x["letter"], y, letter, ha='center', va='center',
+                color=STYLE["neutral_color"], fontsize=fs, weight='bold')
+        ax.text(col_x["activity"], y, activity, ha='left', va='center',
+                color=STYLE["neutral_color"], fontsize=fs)
+        ax.text(col_x["size"], y, size_m, ha='left', va='center',
+                color=STYLE["text_color"], fontsize=fs)
+        ax.text(col_x["color"], y, color_m, ha='left', va='center',
+                color=STYLE["text_color"], fontsize=fs)
+
+    # Metric colorbar below the table (low → high), kept thin (~3x shorter than the rows).
+    grad = np.linspace(0, 1, 256).reshape(1, -1)
+    bar_w, bar_h = 2.4, 0.09
+    y_cbar = table_top - (len(rows_tbl) + 1) * row_step
+    ax.imshow(
+        grad, cmap=metric_colormap(), aspect='auto',
+        extent=[3.0 - bar_w / 2, 3.0 + bar_w / 2, y_cbar - bar_h / 2, y_cbar + bar_h / 2],
+        zorder=3,
+    )
+    ax.text(3.0 - bar_w / 2 - 0.15, y_cbar, "Color  low", ha='right', va='center',
+            color=STYLE["text_color"], fontsize=fs)
+    ax.text(3.0 + bar_w / 2 + 0.15, y_cbar, "high", ha='left', va='center',
+            color=STYLE["text_color"], fontsize=fs)
+
+    if title is None:
+        title = f"{_calendar.month_name[month]} {year}"
+    ax.set_title(
+        title, color=STYLE["highlight_color"],
+        fontsize=STYLE["title_fontsize"], weight=STYLE["title_weight"], pad=12,
+    )
+
+    # Lay out first, then geometrically center each circle glyph: after a draw we know its
+    # rendered box, so we shift the anchor so the box center lands exactly on the circle
+    # center. transData is affine, so a single pass is exact. Done after tight_layout so the
+    # final axes scale (not the pre-layout one) is used.
+    plt.tight_layout()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = ax.transData.inverted()
+    for t, (tx, ty) in centered:
+        ax_disp = ax.transData.transform((tx, ty))
+        bb = t.get_window_extent(renderer=renderer)
+        box_center = ((bb.x0 + bb.x1) / 2.0, (bb.y0 + bb.y1) / 2.0)
+        new_disp = (2 * ax_disp[0] - box_center[0], 2 * ax_disp[1] - box_center[1])
+        t.set_position(inv.transform(new_disp))
+
+    if save_name:
+        plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
+
+    if SHOW_PLOTS:
+        plt.show()
+    else:
+        plt.close()
