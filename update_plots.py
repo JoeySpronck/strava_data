@@ -391,7 +391,7 @@ if len(df_cal) > 0:
     ]
     for (y, m) in reversed(months):
         label = pd.Timestamp(year=y, month=m, day=1).strftime('%B %Y')
-        lines += [f"### {label}", "", f"![{label}]({y}-{m:02d}.png)", ""]
+        lines += [f"### {label}", "", f"![{label}](plots/month_plots/{y}-{m:02d}.png)", ""]
     with open('CALENDAR_PLOTS.md', 'w') as f:
         f.write('\n'.join(lines).rstrip() + '\n')
 
