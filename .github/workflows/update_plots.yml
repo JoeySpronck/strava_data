@@ -2,6 +2,9 @@ name: Update plots from Strava
 
 on:
   workflow_dispatch:  # allows manual trigger
+  push:
+    branches:
+      - main  # regenerate plots after every push to main
   schedule:
     - cron: '0 13 * * *'  # runs every day at 13:00 UTC (1 PM UTC)
 
