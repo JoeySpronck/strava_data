@@ -6,7 +6,7 @@ This repository tracks running progress and training plans. All data are updated
 
 ---
 ### 📈 Weekly volume progression
-> Based on 10% rule. The next unreached target (this or next week) will be used as target for following plots.
+> Based on the 10% rule, but build-up grows at +25%/week while the target stays below the dark-gray dashed line — the highest 3-consecutive-week average volume of the last half year (a previously sustained level). Once a +25% step would reach that line, growth reverts to +10%. The next unreached target (this or next week) is used as the target for the following plots.
 <p align="left">
   <img src="plots/weekly_distance_targets.png" alt="Weekly distance targets" width="500">
 </p>

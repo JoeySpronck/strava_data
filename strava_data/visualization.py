@@ -311,8 +311,23 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     else:
         raise ValueError("col must be 'distance', 'pace', or 'risk'")
 
-def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float, 
+def grow_target(prev: float, recovery_ceiling=None) -> float:
+    """Next weekly volume target.
+
+    The 10% rule mostly serves to set new limits, but when building back up you can
+    usually grow faster. So grow at +25% while a boosted step still stays under the
+    recovery ceiling (a previously sustained volume); once +25% would reach/exceed it,
+    fall back to the conservative +10%. With no ceiling, always +10%.
+    """
+    boosted = prev * 1.25
+    if recovery_ceiling is not None and boosted < recovery_ceiling:
+        return boosted
+    return prev * 1.1
+
+
+def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float,
                                  this_week: pd.Timestamp, this_week_target: float, this_week_volume: float, target_reached: bool,
+                                 recovery_ceiling=None,
                                  additional_weeks: int = 4, last_weeks: int = 7, save_name=None):
     # # --- Prepare base data ---
     # df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
@@ -367,7 +382,7 @@ def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float,
     prev_target = week_target
     for i in range(1, additional_weeks + 1):
         week_end = this_week + pd.Timedelta(days=7 * i)
-        prev_target *= 1.1
+        prev_target = grow_target(prev_target, recovery_ceiling)
         targets.append((week_end, prev_target))
 
     # --- Recent weeks for plotting ---
@@ -466,14 +481,28 @@ def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float,
     for week, target in targets:
         add_label(week, target, f"{target:.1f}", color=STYLE["text_color"])
 
+    # --- Recovery ceiling (previously sustained volume) ---
+    # Below this line build-up runs at +25%/week; reaching it reverts growth to +10%.
+    ceiling_drawn = recovery_ceiling is not None and np.isfinite(recovery_ceiling)
+    if ceiling_drawn:
+        ax.axhline(
+            recovery_ceiling,
+            color=STYLE["text_color"],  # dark gray
+            linestyle='--',
+            linewidth=1.3,
+            alpha=0.9,
+            zorder=0,
+        )
+
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
     plt.xticks(rotation=45, ha='right', color=STYLE["text_color"], rotation_mode='anchor')
     plt.yticks(color=STYLE["text_color"])
-    ax.set_ylim(0, max(recent_weeks['total_volume'].max(), max(t for _, t in targets)) * 1.2)
+    ceiling_for_ylim = recovery_ceiling if ceiling_drawn else 0
+    ax.set_ylim(0, max(recent_weeks['total_volume'].max(), max(t for _, t in targets), ceiling_for_ylim) * 1.2)
     ax.set_ylabel('Weekly Distance (km)', color=STYLE["text_color"])
     ax.set_title(
-        f'Weekly Running Volume Progression (+10% Growth Target)',
+        f'Weekly Running Volume Progression (+10–25% Growth Target)',
         color=STYLE["highlight_color"],
         weight=STYLE["title_weight"]
     )

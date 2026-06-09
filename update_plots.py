@@ -74,9 +74,16 @@ completed_weeks = df_weekly.loc[df_weekly.index < this_week]
 recent_completed = completed_weeks.iloc[-4:]
 base_completed = recent_completed['total_volume'].max() if len(recent_completed) > 0 else 0
 
+# Recovery ceiling: highest mean of any 3 consecutive recorded weeks over the last
+# half year (~26 weeks) = a previously sustained volume. Build-up grows at +25%/week
+# while staying under it; once a +25% step would reach it, growth reverts to +10%.
+half_year = completed_weeks.iloc[-26:]
+recovery_ceiling = half_year['total_volume'].rolling(3).mean().max()
+recovery_ceiling = None if pd.isna(recovery_ceiling) else float(recovery_ceiling)
+
 # This week
 this_week_volume = df_weekly.loc[this_week, 'total_volume']
-this_week_target = base_completed * 1.1
+this_week_target = vis.grow_target(base_completed, recovery_ceiling)
 target_reached = this_week_volume >= this_week_target
 
 # Target
@@ -84,7 +91,7 @@ week_target = this_week_target if not target_reached else max(this_week_volume, 
 week_target = round(float(week_target), 1)
 week_ran = round(float(this_week_volume), 1)
 if week_ran > week_target:
-    week_target = round(week_ran * 1.1, 1)
+    week_target = round(vis.grow_target(week_ran, recovery_ceiling), 1)
     target_next_week = True
 else:
     target_next_week = False
@@ -127,19 +134,10 @@ for runs in [3, 4, 5]:
 # --------------------------
 # HIKE & STRENGTH SUPPORT
 # --------------------------
-def fetch_text_fields(client, ids):
-    """Per-id get_activity call → DataFrame of {id, description, private_note}.
-    Required because Strava's summary API doesn't return `private_note`."""
-    rows = []
-    for aid in ids:
-        d = dict(client.get_activity(aid))
-        rows.append({
-            'id': aid,
-            'description': d.get('description'),
-            'private_note': d.get('private_note'),
-        })
-    return pd.DataFrame(rows)
-
+# Descriptions / private notes need a per-activity get_activity call (the summary API
+# omits them). fetch_text_fields caches results to .cache/ keyed by id, so re-runs only
+# hit the API for new activities — this is what keeps us under the rate limit.
+from strava_data.activity_cache import fetch_text_fields
 
 KG_PATTERN = re.compile(r'(\d+)\s*kg', re.IGNORECASE)
 VOLUME_PATTERN = re.compile(r'(\d{2,7})\s*kg\s*volume', re.IGNORECASE)
