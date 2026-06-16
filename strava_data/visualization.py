@@ -117,11 +117,18 @@ def metric_colormap(color_seq=None):
     return mcolors.LinearSegmentedColormap.from_list('weekly_map', color_seq)
 
 
-def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None):
-    """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm)."""
+def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None,
+                         color_vmin=None, color_vmax=None):
+    """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm).
+
+    color_vmin / color_vmax override the data-derived color range. Use them to cap the
+    scale so a couple of extreme activities don't compress everything else into one end
+    of the colormap; out-of-range values clamp to the end colors (clip=True).
+    """
     cmap = metric_colormap(color_seq)
     values = df[color_col]
-    vmin, vmax = values.min(), values.max()
+    vmin = values.min() if color_vmin is None else color_vmin
+    vmax = values.max() if color_vmax is None else color_vmax
     if norm_center is not None:
         # TwoSlopeNorm requires strict vmin < vcenter < vmax
         eps = 1e-9
@@ -129,7 +136,7 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
         hi = max(vmax, norm_center + eps)
         norm = mcolors.TwoSlopeNorm(vmin=lo, vcenter=norm_center, vmax=hi)
     else:
-        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
 
     for week, group in df.groupby('week', sort=True):
         bottom = 0
@@ -169,6 +176,8 @@ def plot_weekly_stacked(
     color_seq=None,
     norm_center=None,
     color_format_fn=None,
+    color_vmin=None,
+    color_vmax=None,
     save_name=None,
 ):
     """
@@ -187,10 +196,14 @@ def plot_weekly_stacked(
         color_seq (list[str] | None): colors for the colormap (low → high). Defaults to dark→neutral→main.
         norm_center (float | None): if set, use a TwoSlopeNorm centered here; otherwise linear.
         color_format_fn: optional matplotlib tick formatter callable for the colorbar.
+        color_vmin / color_vmax (float | None): cap the color scale instead of using the
+            data min/max, so extreme outliers don't skew the colormap. Values beyond the
+            cap clamp to the end colors.
         save_name (str | None): if set, saves the plot under SAVE_FOLDER.
     """
     fig, ax = setup_figure()
-    cmap, norm = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq, norm_center)
+    cmap, norm = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq, norm_center,
+                                      color_vmin=color_vmin, color_vmax=color_vmax)
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -238,7 +251,7 @@ def plot_weekly_stacked_multi(
         panels (list[dict]): one dict per panel. Required keys:
             df, stack_col, color_col, stack_label, color_label, title.
           Optional keys:
-            color_seq, norm_center, color_format_fn.
+            color_seq, norm_center, color_format_fn, color_vmin, color_vmax.
         panel_height (float): height in inches per panel (default 1.6).
         width (float | None): figure width; defaults to STYLE['width_large'].
         suptitle (str | None): figure-level title above all panels.
@@ -273,6 +286,8 @@ def plot_weekly_stacked_multi(
                 panel['stack_col'], panel['color_col'],
                 color_seq=panel.get('color_seq'),
                 norm_center=panel.get('norm_center'),
+                color_vmin=panel.get('color_vmin'),
+                color_vmax=panel.get('color_vmax'),
             )
             _attach_colorbar(
                 ax, cmap, norm, panel['color_label'],

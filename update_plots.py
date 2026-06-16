@@ -193,6 +193,10 @@ if len(df_hikes) > 0:
 # --------------------------
 # STRENGTH PLOT
 # --------------------------
+# Cap the volume-rate colour scale (kg/min) so a couple of very dense sessions don't push
+# every other bar/circle to one end of the colormap. Sessions above this clamp to max colour.
+STRENGTH_COLOR_MAX = 350
+
 df_strength = df_activities[
     (df_activities['type'] == 'WeightTraining') &
     (df_activities['start_date'].dt.year >= 2025)
@@ -214,14 +218,18 @@ if len(df_strength) > 0:
 
     if len(df_strength) > 0:
         df_strength['volume_kg'] = df_strength['volume_kg'].astype(int)
+        # Volume rate (kg lifted per minute) is the strength analogue of run/cycle avg speed:
+        # an effort-density metric, so colouring stays consistent with the other sports.
+        df_strength['volume_per_min'] = df_strength['volume_kg'] / df_strength['time_min']
 
         vis.plot_weekly_stacked(
             df_strength,
             stack_col='volume_kg',
-            color_col='time_min',
+            color_col='volume_per_min',
             stack_label='Volume (kg)',
-            color_label='Session time (min)',
-            title='Weekly Strength Volume  |  Session Time',
+            color_label='Volume rate (kg/min)',
+            title='Weekly Strength Volume  |  Volume Rate',
+            color_vmax=STRENGTH_COLOR_MAX,
             save_name='weekly_strength_volume.png',
         )
 
@@ -279,9 +287,10 @@ if len(df_hikes) > 0:
 if len(df_strength) > 0:
     overview_panels.append(dict(
         df=df_strength,
-        stack_col='volume_kg', color_col='time_min',
-        stack_label='Volume kg', color_label='min',
-        title='Strength  |  Session Time',
+        stack_col='volume_kg', color_col='volume_per_min',
+        stack_label='Volume kg', color_label='kg/min',
+        title='Strength  |  Volume Rate',
+        color_vmax=STRENGTH_COLOR_MAX,
     ))
 
 if overview_panels:
@@ -303,16 +312,22 @@ import matplotlib.colors as mcolors
 cal_cmap = vis.metric_colormap()  # shared dark→white→orange metric colormap
 
 
-def _metric_colors(values):
-    """RGBA per value via the shared colormap, normalized within this sport's range."""
+def _metric_colors(values, vmin=None, vmax=None):
+    """RGBA per value via the shared colormap, normalized within this sport's range.
+
+    vmin / vmax override the data-derived range to cap the scale so a couple of extreme
+    activities don't push every other circle to one end of the colormap; out-of-range
+    values clamp to the end colors (clip=True).
+    """
     v = pd.to_numeric(values, errors='coerce').to_numpy(dtype=float)
     finite = v[np.isfinite(v)]
     if finite.size == 0:
         return [cal_cmap(0.5)] * len(v)
-    lo, hi = float(finite.min()), float(finite.max())
+    lo = float(finite.min()) if vmin is None else float(vmin)
+    hi = float(finite.max()) if vmax is None else float(vmax)
     if hi <= lo:
         return [cal_cmap(0.5)] * len(v)
-    norm = mcolors.Normalize(lo, hi)
+    norm = mcolors.Normalize(lo, hi, clip=True)
     return [cal_cmap(norm(x)) if np.isfinite(x) else cal_cmap(0.5) for x in v]
 
 
@@ -356,9 +371,9 @@ if len(df_hikes) > 0:
             size_value=row['distance_km'], color=color,
         ))
 
-# Strength: size = volume_kg, color = session time.
+# Strength: size = volume_kg, color = volume rate (kg/min), capped so outliers don't skew.
 if len(df_strength) > 0:
-    colors = _metric_colors(df_strength['time_min'])
+    colors = _metric_colors(df_strength['volume_per_min'], vmax=STRENGTH_COLOR_MAX)
     for (_, row), color in zip(df_strength.iterrows(), colors):
         cal_rows.append(dict(
             date=_cal_date(row), sport='strength',
