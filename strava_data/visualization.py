@@ -4,9 +4,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
-from matplotlib.patches import Circle, FancyBboxPatch
+from matplotlib.patches import Circle, FancyBboxPatch, Polygon as MplPolygon
 from sklearn.preprocessing import StandardScaler
 import numpy as np
+from strava_data.shapes import sport_marker_vertices
 plt.rc('axes', axisbelow=True)
 
 SHOW_PLOTS = True
@@ -1082,6 +1083,27 @@ def _text_color_for(rgba):
     return "#000000" if luminance > 0.55 else STYLE["neutral_color"]
 
 
+def _add_sport_marker(ax, center, radius, sport, facecolor, edgecolor, linewidth, zorder):
+    """Draw a sport's marker shape, scaled to area pi*radius**2 and centered on `center`.
+
+    The per-sport outlines are normalized to unit equal-area radius, so every sport
+    drawn at the same `radius` encloses the same area (matching the old circles). Falls
+    back to a plain circle for any sport without a defined shape.
+    """
+    verts = sport_marker_vertices().get(sport)
+    if verts is None:
+        ax.add_patch(Circle(
+            center, radius, facecolor=facecolor, edgecolor=edgecolor,
+            linewidth=linewidth, zorder=zorder,
+        ))
+        return
+    xy = verts * radius + np.asarray(center)
+    ax.add_patch(MplPolygon(
+        xy, closed=True, facecolor=facecolor, edgecolor=edgecolor,
+        linewidth=linewidth, joinstyle="round", zorder=zorder,
+    ))
+
+
 def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_weekday=0, today=None):
     """
     Strava-style month overview: a calendar grid where each day is a circle.
@@ -1213,11 +1235,11 @@ def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_w
             )
             primary = acts[0]
             r_primary = _calendar_radius(primary['size_value'], primary['sport'])
-            ax.add_patch(Circle(
-                (cx, cy), r_primary,
+            _add_sport_marker(
+                ax, (cx, cy), r_primary, primary['sport'],
                 facecolor=primary['color'], edgecolor=STYLE["bar_edge_color"],
                 linewidth=CALENDAR["border_width"], zorder=2,
-            ))
+            )
             t = ax.text(
                 cx, cy, SPORT_LETTERS.get(primary['sport'], '?'),
                 ha='center', va='center',
@@ -1231,11 +1253,11 @@ def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_w
                 sx = cx + CALENDAR["secondary_offset_x"] + i * CALENDAR["secondary_step_x"]
                 sy = cy + CALENDAR["secondary_offset_y"] + i * CALENDAR["secondary_step_y"]
                 rs = _calendar_radius(act['size_value'], act['sport']) * CALENDAR["secondary_size_mult"]
-                ax.add_patch(Circle(
-                    (sx, sy), rs,
+                _add_sport_marker(
+                    ax, (sx, sy), rs, act['sport'],
                     facecolor=act['color'], edgecolor=STYLE["background_color"],
                     linewidth=CALENDAR["border_width"] * 0.7, zorder=4,
-                ))
+                )
                 t = ax.text(
                     sx, sy, SPORT_LETTERS.get(act['sport'], '?'),
                     ha='center', va='center',
@@ -1248,13 +1270,14 @@ def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_w
     fs = CALENDAR["legend_fontsize"]
     col_x = {"letter": 0.5, "activity": 1.1, "size": 2.9, "color": 4.2}
     rows_tbl = [
-        ("T", "Trail Run", "Distance", "Speed"),
-        ("R", "Run",       "Distance", "Speed"),
-        ("H", "Hike",      "Distance", "Carried weight"),
-        ("S", "Strength",  "Volume",   "Session time"),
-        ("B", "Bike",      "Distance", "Speed"),
+        ("trail",    "T", "Trail Run", "Distance", "Speed"),
+        ("run",      "R", "Run",       "Distance", "Speed"),
+        ("hike",     "H", "Hike",      "Distance", "Carried weight"),
+        ("strength", "S", "Strength",  "Volume",   "Session time"),
+        ("bike",     "B", "Bike",      "Distance", "Speed"),
     ]
     row_step = 0.34
+    legend_glyph_radius = 0.13  # white sport shape behind each legend letter
     table_top = grid_bottom - 0.55
 
     # Header row (the index/letter column header stays empty).
@@ -1265,10 +1288,16 @@ def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_w
     ax.plot([col_x["letter"] - 0.25, 6.0], [table_top - row_step * 0.5] * 2,
             color=STYLE["grid_color"], alpha=0.5, linewidth=0.8, zorder=2)
 
-    for i, (letter, activity, size_m, color_m) in enumerate(rows_tbl, start=1):
+    for i, (sport, letter, activity, size_m, color_m) in enumerate(rows_tbl, start=1):
         y = table_top - i * row_step
-        ax.text(col_x["letter"], y, letter, ha='center', va='center',
-                color=STYLE["neutral_color"], fontsize=fs, weight='bold')
+        # White sport shape with the background-colored letter inside (mirrors the grid markers).
+        _add_sport_marker(
+            ax, (col_x["letter"], y), legend_glyph_radius, sport,
+            facecolor=STYLE["neutral_color"], edgecolor='none', linewidth=0, zorder=2,
+        )
+        t = ax.text(col_x["letter"], y, letter, ha='center', va='center',
+                    color=STYLE["background_color"], fontsize=fs, weight='bold', zorder=3)
+        centered.append((t, (col_x["letter"], y)))
         ax.text(col_x["activity"], y, activity, ha='left', va='center',
                 color=STYLE["neutral_color"], fontsize=fs)
         ax.text(col_x["size"], y, size_m, ha='left', va='center',
