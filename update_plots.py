@@ -261,6 +261,8 @@ if len(df_rides) > 0:
 # --------------------------
 df_runs_overview = df_runs.copy()
 df_runs_overview['avg_speed_kmh'] = df_runs_overview['average_speed'] * 3.6
+# Trail runs share the legacy type 'Run'; sport_type tells them apart so they can be hatched.
+df_runs_overview['is_trail'] = df_runs_overview['sport_type'].astype(str).str.contains('Trail', case=False, na=False)
 
 overview_panels = []
 if len(df_runs_overview) > 0:
@@ -269,6 +271,7 @@ if len(df_runs_overview) > 0:
         stack_col='distance_km', color_col='avg_speed_kmh',
         stack_label='Run km', color_label='km/h',
         title='Running  |  Avg Speed',
+        hatch_col='is_trail',
     ))
 if len(df_rides) > 0:
     overview_panels.append(dict(

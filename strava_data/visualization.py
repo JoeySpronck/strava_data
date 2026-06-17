@@ -37,6 +37,17 @@ STYLE = {
     "font_family": "DejaVu Sans",
     "bar_width": 4,
     "bar_linewidth": 0.6,
+    # Trail runs reuse the same distance/pace/risk colors as road runs but get diagonal
+    # hatching overlaid so they're distinguishable at a glance. Hatch lines are drawn in the
+    # background color (the same color as the segment separators) for consistent contrast.
+    "trail_hatch": "////",
+    "trail_hatch_linewidth": 0.7,
+    "trail_hash_color": COLORS["dark"],  # fallback hatch color (e.g. legend swatch)
+    # Trail hatch lines are a darkened version of each bar segment's own fill color so the
+    # diagonals tint with the bar (dark/white/orange) instead of one fixed gray. The factor
+    # scales HSV brightness: 1.0 = same color, lower = darker. Set to None to use the fixed
+    # trail_hash_color for all hatched bars instead.
+    "trail_hatch_darken": 0.7,
     "width_small": 5,
     "width_large": 12,
     "height_large": 6,
@@ -106,6 +117,18 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     plt.rcParams["font.family"] = STYLE["font_family"]
     return fig, ax
 
+def _darken(color, factor):
+    """Return `color` darkened by scaling its HSV brightness by `factor` (0..1).
+
+    Keeps hue and saturation, so orange stays orange and white becomes gray. Used to tint
+    trail-run hatch lines a shade darker than the bar segment they sit on.
+    """
+    r, g, b, a = mcolors.to_rgba(color)
+    h, s, v = mcolors.rgb_to_hsv((r, g, b))
+    r2, g2, b2 = mcolors.hsv_to_rgb((h, s, v * factor))
+    return (r2, g2, b2, a)
+
+
 def metric_colormap(color_seq=None):
     """The shared dark→white→orange metric colormap used across the weekly plots.
 
@@ -118,13 +141,18 @@ def metric_colormap(color_seq=None):
 
 
 def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None,
-                         color_vmin=None, color_vmax=None):
+                         color_vmin=None, color_vmax=None, hatch_col=None):
     """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm).
 
     color_vmin / color_vmax override the data-derived color range. Use them to cap the
     scale so a couple of extreme activities don't compress everything else into one end
     of the colormap; out-of-range values clamp to the end colors (clip=True).
+
+    hatch_col: optional name of a boolean column; rows that are True get diagonal hatching
+    overlaid on their segment (used to mark trail runs apart from road runs).
     """
+    # Hatch lines inherit the patch edgecolor; keep them thin so they read as texture, not noise.
+    plt.rcParams['hatch.linewidth'] = STYLE["trail_hatch_linewidth"]
     cmap = metric_colormap(color_seq)
     values = df[color_col]
     vmin = values.min() if color_vmin is None else color_vmin
@@ -141,28 +169,97 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
     for week, group in df.groupby('week', sort=True):
         bottom = 0
         for _, row in group.iterrows():
+            height = row[stack_col]
+            fill = cmap(norm(values.loc[row.name]))
+            is_trail = bool(hatch_col and row[hatch_col])
+            # Base bar: just the fill, no border yet (the black border is drawn last so it
+            # sits ON TOP of any hatch and the hatch can't protrude past the bar edges).
             ax.bar(
                 week,
-                row[stack_col],
+                height,
                 bottom=bottom,
                 width=STYLE["bar_width"],
-                color=cmap(norm(values.loc[row.name])),
-                linewidth=STYLE["bar_linewidth"],
-                edgecolor=STYLE["bar_edge_color"]
+                color=fill,
+                linewidth=0,
+                zorder=1,
             )
-            bottom += row[stack_col]
+            # Trail runs: overlay ONLY the hatch (between fill and border). The hatch takes the
+            # patch edgecolor, so this patch is transparent (facecolor='none') with linewidth=0 —
+            # no border drawn — while the diagonal lines get their own darkened-fill color
+            # (hatch line width comes from the rcParam above).
+            if is_trail:
+                darken = STYLE["trail_hatch_darken"]
+                hatch_color = _darken(fill, darken) if darken is not None else STYLE["trail_hash_color"]
+                ax.bar(
+                    week,
+                    height,
+                    bottom=bottom,
+                    width=STYLE["bar_width"],
+                    facecolor='none',
+                    linewidth=0,
+                    edgecolor=hatch_color,
+                    hatch=STYLE["trail_hatch"],
+                    zorder=2,
+                )
+            # Black segment border ("square" around each block) drawn last, on top of the hatch,
+            # so the hatch is clipped to the bar and the border stays crisp and black.
+            ax.bar(
+                week,
+                height,
+                bottom=bottom,
+                width=STYLE["bar_width"],
+                facecolor='none',
+                linewidth=STYLE["bar_linewidth"],
+                edgecolor=STYLE["bar_edge_color"],
+                zorder=3,
+            )
+            bottom += height
     return cmap, norm
 
 
-def _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=None, label_fontsize=None, tick_fontsize=None):
+def _cap_flags(values, color_vmin, color_vmax):
+    """Whether the color scale is capped *and* data actually spills past the cap.
+
+    Only then is a ``≥`` / ``≤`` boundary label meaningful: values beyond the cap clamp
+    to the end color, so the boundary tick really means "this value or beyond".
+    """
+    cap_low = color_vmin is not None and float(values.min()) < color_vmin
+    cap_high = color_vmax is not None and float(values.max()) > color_vmax
+    return cap_low, cap_high
+
+
+def _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=None, label_fontsize=None,
+                     tick_fontsize=None, cap_low=False, cap_high=False):
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = plt.colorbar(sm, ax=ax, pad=0.02)
     cbar.set_label(color_label, color=STYLE["text_color"], fontsize=label_fontsize)
     cbar.ax.yaxis.set_tick_params(color=STYLE["text_color"], labelsize=tick_fontsize)
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=STYLE["text_color"])
-    if color_format_fn is not None:
+
+    if cap_low or cap_high:
+        vmin, vmax = float(norm.vmin), float(norm.vmax)
+        tol = max(abs(vmax - vmin), 1.0) * 1e-6
+        # Keep the auto ticks but guarantee one lands exactly on each capped boundary,
+        # so the "≥"/"≤" marker shows at the end of the bar rather than on the nearest tick.
+        ticks = [t for t in cbar.get_ticks() if vmin - tol <= t <= vmax + tol]
+        if cap_high and not any(abs(t - vmax) <= tol for t in ticks):
+            ticks.append(vmax)
+        if cap_low and not any(abs(t - vmin) <= tol for t in ticks):
+            ticks.append(vmin)
+        cbar.set_ticks(sorted(ticks))
+
+        def _fmt(x, pos):
+            base = color_format_fn(x, pos) if color_format_fn is not None else f"{x:g}"
+            if cap_high and abs(x - vmax) <= tol:
+                return f"≥{base}"
+            if cap_low and abs(x - vmin) <= tol:
+                return f"≤{base}"
+            return base
+        cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(_fmt))
+    elif color_format_fn is not None:
         cbar.ax.yaxis.set_major_formatter(plt.FuncFormatter(color_format_fn))
+
+    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color=STYLE["text_color"])
     return cbar
 
 
@@ -178,6 +275,7 @@ def plot_weekly_stacked(
     color_format_fn=None,
     color_vmin=None,
     color_vmax=None,
+    hatch_col=None,
     save_name=None,
 ):
     """
@@ -203,7 +301,8 @@ def plot_weekly_stacked(
     """
     fig, ax = setup_figure()
     cmap, norm = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq, norm_center,
-                                      color_vmin=color_vmin, color_vmax=color_vmax)
+                                      color_vmin=color_vmin, color_vmax=color_vmax,
+                                      hatch_col=hatch_col)
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -222,7 +321,24 @@ def plot_weekly_stacked(
     )
     ax.grid(axis='y', color=STYLE["grid_color"], alpha=STYLE["grid_alpha"], linewidth=0.5)
 
-    _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=color_format_fn)
+    # When trail runs are hatched, add a legend so the diagonal lines read as "trail run".
+    if hatch_col is not None and df[hatch_col].any():
+        from matplotlib.patches import Patch
+        # Representative swatch: a neutral fill with the hatch drawn the same way as the bars
+        # (darkened fill color, or the fixed fallback when darkening is disabled).
+        darken = STYLE["trail_hatch_darken"]
+        legend_hatch_color = (_darken(STYLE["neutral_color"], darken)
+                              if darken is not None else STYLE["trail_hash_color"])
+        trail_patch = Patch(facecolor=STYLE["neutral_color"], edgecolor=legend_hatch_color,
+                            hatch=STYLE["trail_hatch"], label='Trail run')
+        legend = ax.legend(handles=[trail_patch], loc='upper left',
+                           facecolor=STYLE["background_color"], edgecolor=STYLE["text_color"],
+                           fontsize=STYLE["subtitle_fontsize"])
+        plt.setp(legend.get_texts(), color=STYLE["text_color"])
+
+    cap_low, cap_high = _cap_flags(df[color_col], color_vmin, color_vmax)
+    _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=color_format_fn,
+                     cap_low=cap_low, cap_high=cap_high)
 
     plt.tight_layout()
     if save_name:
@@ -281,6 +397,7 @@ def plot_weekly_stacked_multi(
 
         df = panel['df']
         if len(df) > 0:
+            hatch_col = panel.get('hatch_col')
             cmap, norm = _draw_weekly_stacked(
                 ax, df,
                 panel['stack_col'], panel['color_col'],
@@ -288,13 +405,29 @@ def plot_weekly_stacked_multi(
                 norm_center=panel.get('norm_center'),
                 color_vmin=panel.get('color_vmin'),
                 color_vmax=panel.get('color_vmax'),
+                hatch_col=hatch_col,
             )
+            cap_low, cap_high = _cap_flags(df[panel['color_col']],
+                                           panel.get('color_vmin'), panel.get('color_vmax'))
             _attach_colorbar(
                 ax, cmap, norm, panel['color_label'],
                 color_format_fn=panel.get('color_format_fn'),
                 label_fontsize=STYLE["small_fontsize"],
                 tick_fontsize=STYLE["small_fontsize"],
+                cap_low=cap_low, cap_high=cap_high,
             )
+            # Legend marking the hatched series (e.g. trail runs) on panels that use it.
+            if hatch_col is not None and df[hatch_col].any():
+                from matplotlib.patches import Patch
+                darken = STYLE["trail_hatch_darken"]
+                legend_hatch_color = (_darken(STYLE["neutral_color"], darken)
+                                      if darken is not None else STYLE["trail_hash_color"])
+                trail_patch = Patch(facecolor=STYLE["neutral_color"], edgecolor=legend_hatch_color,
+                                    hatch=STYLE["trail_hatch"], label='Trail run')
+                legend = ax.legend(handles=[trail_patch], loc='upper left',
+                                   facecolor=STYLE["background_color"], edgecolor=STYLE["text_color"],
+                                   fontsize=STYLE["small_fontsize"])
+                plt.setp(legend.get_texts(), color=STYLE["text_color"])
 
         ax.set_ylabel(panel['stack_label'], color=STYLE["text_color"], fontsize=STYLE["small_fontsize"], labelpad=6)
         ax.tick_params(axis='y', colors=STYLE["text_color"], labelsize=STYLE["small_fontsize"])
@@ -341,9 +474,16 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     (distance_km) and configures the chosen color dimension.
 
     Parameters:
-        df_runs (pd.DataFrame): runs with 'week', 'distance_km', 'average_speed'.
+        df_runs (pd.DataFrame): runs with 'week', 'distance_km', 'average_speed', 'sport_type'.
         col (str): 'distance', 'pace', or 'risk'.
+
+    Trail runs (sport_type containing 'Trail') are drawn with the same color metric as road
+    runs but overlaid with diagonal hatching so they stand out.
     """
+    df_runs = df_runs.copy()
+    # Trail runs share the legacy type 'Run'; sport_type is what tells them apart.
+    df_runs['is_trail'] = df_runs['sport_type'].astype(str).str.contains('Trail', case=False, na=False)
+
     if col == 'distance':
         plot_weekly_stacked(
             df_runs,
@@ -353,10 +493,10 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
             color_label='Distance per run (km)',
             title='Weekly Distance Stacked per Run  |  Distance',
             color_seq=STYLE["color_seq_distance"],
+            hatch_col='is_trail',
             save_name=save_name,
         )
     elif col == 'pace':
-        df_runs = df_runs.copy()
         df_runs['pace_min_per_km'] = (1000 / df_runs['average_speed']) / 60
         plot_weekly_stacked(
             df_runs,
@@ -368,10 +508,10 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
             color_seq=STYLE["color_seq_pace"],
             norm_center=df_runs['pace_min_per_km'].mean(),
             color_format_fn=lambda x, pos: f"{int(x)}:{int((x - int(x)) * 60):02d}",
+            hatch_col='is_trail',
             save_name=save_name,
         )
     elif col == 'risk':
-        df_runs = df_runs.copy()
         scaler = StandardScaler()
         df_runs[['dist_z', 'speed_z']] = scaler.fit_transform(df_runs[['distance_km', 'average_speed']])
         df_runs['risk_zscore'] = df_runs['dist_z'] + df_runs['speed_z']
@@ -384,6 +524,7 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
             title='Weekly Distance Stacked per Run  |  Risk',
             color_seq=STYLE["color_seq_risk"],
             norm_center=0,
+            hatch_col='is_trail',
             save_name=save_name,
         )
     else:
