@@ -61,7 +61,7 @@ STYLE = {
 # === MONTH CALENDAR SETTINGS ===
 # Strava-style month overview. Circle COLOR reuses the shared dark→white→orange metric
 # colormap (the exact one the multisport overview uses): each activity is colored by its
-# sport's color metric (run/bike avg speed, hike carried weight, strength session time),
+# sport's color metric (run/bike avg speed, hike carried weight, strength volume rate),
 # normalized within that sport. Circle SIZE encodes the same magnitude that drives the
 # overview bar heights (distance_km, or volume_kg for strength). The letter encodes sport.
 SPORT_LETTERS = {
@@ -1273,7 +1273,7 @@ def plot_month_calendar(df_cal, year, month, title=None, save_name=None, first_w
         ("trail",    "T", "Trail Run", "Distance", "Speed"),
         ("run",      "R", "Run",       "Distance", "Speed"),
         ("hike",     "H", "Hike",      "Distance", "Carried weight"),
-        ("strength", "S", "Strength",  "Volume",   "Session time"),
+        ("strength", "S", "Strength",  "Volume",   "Volume rate"),
         ("bike",     "B", "Bike",      "Distance", "Speed"),
     ]
     row_step = 0.34
