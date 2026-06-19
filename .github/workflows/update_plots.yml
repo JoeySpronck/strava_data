@@ -38,6 +38,13 @@ jobs:
         run: |
           python update_plots.py
 
+      - name: Add cache-busting token to plot filenames
+        # Append a per-run token to every plot filename + patch the markdown refs so the
+        # GitHub app stops serving stale images. Runs only here on the publish path — main
+        # keeps clean, hand-editable filenames. See .github/helper_scripts/add_cache_token_to_image_names.py.
+        run: |
+          python .github/helper_scripts/add_cache_token_to_image_names.py "$(date -u +%Y%m%d%H%M%S)"
+
       - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
