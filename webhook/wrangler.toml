@@ -9,3 +9,15 @@ compatibility_date = "2025-06-01"
 [vars]
 # The only thing a fork needs to change: point this at your own repo.
 GITHUB_REPO = "JoeySpronck/strava_data"
+
+# Durable Object that holds the debounce timer (see worker.js). Lets us wait
+# until a burst of edits settles before triggering the workflow once.
+[[durable_objects.bindings]]
+name = "DEBOUNCER"          # how worker.js reaches it: env.DEBOUNCER
+class_name = "StravaDebouncer"
+
+# Required so the DO uses the SQLite storage backend, which is the only kind
+# available on the Workers Free plan (and is what the Alarms API needs here).
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["StravaDebouncer"]

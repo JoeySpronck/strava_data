@@ -5,8 +5,13 @@
 > Without the webhook, the plots refresh on the schedule already defined in
 > [`.github/workflows/update_plots.yml`](../.github/workflows/update_plots.yml)
 > (a daily `cron`) and whenever you push to `main`. The webhook just adds a
-> *third* trigger: **plots update within ~a minute of you finishing or editing a
+> *third* trigger: **plots update a few minutes after you finish or edit a
 > Strava activity**, instead of waiting for the daily run.
+>
+> The Worker **debounces** events: one ride often fires a burst (ActivityFix
+> auto-edits, then you flip private→followers). Rather than run the job once per
+> event, each event restarts a 3-minute timer and the workflow runs **once**,
+> 3 minutes after the edits go quiet. See [How the debounce works](#how-the-debounce-works).
 >
 > If "updated once a day" is good enough for you, **you can ignore this folder
 > entirely.** Delete it and nothing breaks.
@@ -37,9 +42,39 @@ The Worker does exactly two things:
 
 1. **GET request** → answers Strava's one-time "are you really my endpoint?"
    validation handshake.
-2. **POST request** → on a real activity event, calls GitHub's `workflow_dispatch`
-   API, which is the same as pressing the **"Run workflow"** button in the
-   Actions tab.
+2. **POST request** → on a real activity event, (re)starts a 3-minute debounce
+   timer. When the timer finally fires (no new events for 3 minutes), it calls
+   GitHub's `workflow_dispatch` API — the same as pressing the **"Run workflow"**
+   button in the Actions tab.
+
+---
+
+## How the debounce works
+
+A plain Worker is **stateless**: every request is a fresh invocation that
+remembers nothing about the previous one. So "wait 3 minutes, and if more edits
+arrive, reset the wait" needs somewhere to keep the timer between requests.
+
+That's a **Durable Object** (`StravaDebouncer` in `worker.js`): a tiny stateful
+object that can schedule a wake-up via the [Alarms API](https://developers.cloudflare.com/durable-objects/api/alarms/).
+Every Strava event is routed to **one shared instance** (named `"strava"`), which
+sets its single alarm to "now + 3 minutes". Because a Durable Object has at most
+one alarm, each new event just slides that one wake-up further into the future:
+
+```
+POST edit 1 (ActivityFix)   ──►  alarm = now + 3 min
+POST edit 2 (ActivityFix)   ──►  alarm = now + 3 min   (reset)
+POST edit 3 (private→followers) ─►  alarm = now + 3 min   (reset)
+        … 3 minutes of no events …
+   alarm() fires             ──►  ONE workflow_dispatch → plots regenerate
+```
+
+Change the wait by editing `DEBOUNCE_MS` near the top of `worker.js`, then
+`wrangler deploy`.
+
+> **Free tier.** The Durable Object uses the **SQLite** storage backend
+> (declared via `new_sqlite_classes` in `wrangler.toml`), which is the kind
+> available on the Workers Free plan — so this costs nothing.
 
 ---
 
@@ -212,15 +247,17 @@ curl -s -X POST https://www.strava.com/api/v3/push_subscriptions \
 wrangler tail
 ```
 
-Then edit any Strava activity (change a title). Within seconds a new
-**"Update plots from Strava"** run should appear in your repo's **Actions** tab,
+Then edit any Strava activity (change a title). You'll see `bump()` logged in
+`wrangler tail` immediately, and **~3 minutes after your last edit** a new
+**"Update plots from Strava"** run appears in your repo's **Actions** tab,
 triggered by `workflow_dispatch`. Done — the loop runs on its own now.
 
-You can also trigger it manually to test the Worker→GitHub link without Strava:
+You can also trigger it manually to test the Worker→GitHub link without Strava
+(note the 3-minute debounce wait before the run appears):
 
 ```bash
 curl -s -X POST https://strava-webhook-relay.<your-subdomain>.workers.dev/
-# -> "ok", and a workflow run appears in the Actions tab
+# -> "ok" immediately; the workflow run appears ~3 min later in the Actions tab
 ```
 
 ---
