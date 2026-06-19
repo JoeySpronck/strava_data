@@ -1,0 +1,11 @@
+# Cloudflare Worker config. This file is safe to commit — it has NO secrets.
+# Secrets (GH_TOKEN, STRAVA_VERIFY_TOKEN) are stored encrypted in Cloudflare,
+# set separately via `wrangler secret put` (see below). They never live here.
+
+name = "strava-webhook-relay"   # becomes part of your URL: strava-webhook-relay.<you>.workers.dev
+main = "worker.js"              # the code file wrangler deploys
+compatibility_date = "2025-06-01"
+
+[vars]
+# The only thing a fork needs to change: point this at your own repo.
+GITHUB_REPO = "JoeySpronck/strava_data"

@@ -1,0 +1,4 @@
+# Local wrangler state and any local secret files — never commit these.
+.wrangler/
+.dev.vars
+node_modules/
