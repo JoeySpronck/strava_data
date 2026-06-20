@@ -9,6 +9,10 @@ plots that refresh automatically. The plots live on the `plot_updates` branch so
   <a href="https://github.com/JoeySpronck/strava_data/tree/plot_updates/README.md">
     <img src="https://img.shields.io/badge/📈_View_Live_Training_Plots-FB5200?style=flat" alt="View Live Training Plots" width="320">
   </a>
+  
+  <a href="https://joeyspronck.github.io/strava_data/web/">
+    <img src="https://img.shields.io/badge/🌐_Open_Web_Dashboard-1a1a1a?style=flat" alt="Open Web Dashboard" width="300">
+  </a>
 </p>
 
 ---
@@ -17,7 +21,8 @@ plots that refresh automatically. The plots live on the `plot_updates` branch so
 
 - **`update_plots.py`** — fetches activities via the Strava API and regenerates every plot in `plots/`.
 - **`strava_data/`** — the package: API client, data wrangling, and all the plotting/visualization logic.
-- **`webhook/`** — a Cloudflare Worker that listens for Strava activity changes and triggers a plot refresh (debounced, so bursts of edits run once). Configuring this is optional.
+- **`webhook/`** — a Cloudflare Worker that listens for Strava activity changes and triggers a plot refresh (debounced, so bursts of edits run once). Optional — see [`webhook/README.md`](webhook/README.md) to set it up.
+- **`web/`** — a styled HTML/CSS dashboard published via GitHub Pages (the *Open Web Dashboard* button above). Optional — see [`web/README.md`](web/README.md) to enable it.
 - **GitHub Actions** (`.github/workflows/update_plots.yml`) — runs `update_plots.py` daily, on push to `main`, manually via github actions, and on webhook trigger (when an activity is added/edited on strava), then publishes the regenerated plots and dashboard to the `plot_updates` branch.
 - **`dev/`** contains `playground.ipynb`, whis is a development notebook version of `update_plots.py`, and other development files. 
 
