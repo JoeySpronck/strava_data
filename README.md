@@ -74,14 +74,14 @@ This repository tracks running progress and training plans. All data are updated
 
 ---
 ### 🏋️ Strength
-> Each bar = one week. Each stack segment = one session — height is total volume (kg), color is session time (min). Volume is parsed from `NNNN kg volume` in description / private note.
+> Each bar = one week. Each stack segment = one session — height is total volume (kg), color is volume rate (kg/min). Volume is parsed from `NNNN kg volume` in description / private note.
 <p align="left">
   <img src="plots/weekly_strength_volume.png" alt="Weekly strength" width="800">
 </p>
 
 ---
 ### 🏃🚴🥾🏋️ All-Sports Overview
-> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and session time (strength).
+> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength).
 <p align="left">
   <img src="plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" width="800">
 </p>
