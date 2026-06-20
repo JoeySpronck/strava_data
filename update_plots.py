@@ -416,6 +416,45 @@ if len(df_cal) > 0:
     with open('CALENDAR_PLOTS.md', 'w') as f:
         f.write('\n'.join(lines).rstrip() + '\n')
 
+    # HTML twin of CALENDAR_PLOTS.md for the GitHub Pages site (index.html links here).
+    # __BUILD_TOKEN__ is stamped with the generation time by the cache-token Action step;
+    # the same step rewrites the plot image URLs to their cache-busted filenames.
+    cards = []
+    for (y, m) in reversed(months):
+        label = pd.Timestamp(year=y, month=m, day=1).strftime('%B %Y')
+        cards.append(
+            f'    <section>\n'
+            f'      <div class="sub">{label}</div>\n'
+            f'      <div class="card hero-plot">'
+            f'<img src="../plots/month_plots/{y}-{m:02d}.png" alt="{label}" loading="lazy"></div>\n'
+            f'    </section>'
+        )
+    cal_html = (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+        '<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        '<meta name="theme-color" content="#fb5200">\n'
+        '<title>Monthly Activity Calendars · Joey Spronck</title>\n'
+        '<link rel="stylesheet" href="style.css">\n'
+        '</head>\n<body>\n'
+        '<header class="topbar"><div class="topbar-inner">'
+        '<span class="brand">STRAVA<span class="dot">·</span>DATA</span>'
+        '<nav class="nav"><a href="index.html">← Dashboard</a></nav>'
+        '<span class="meta">Updated __BUILD_TOKEN__</span>'
+        '</div></header>\n'
+        '<main class="wrap">\n'
+        '  <div class="hero"><h1>📅 Monthly Activity Calendars</h1>'
+        '<p>Every month with recorded activity, newest first.</p></div>\n'
+        + '\n'.join(cards) + '\n'
+        '</main>\n'
+        '<footer>Auto-generated from the Strava API via GitHub Actions · '
+        '<a href="https://github.com/JoeySpronck/strava_data">source</a></footer>\n'
+        '</body>\n</html>\n'
+    )
+    os.makedirs('web', exist_ok=True)
+    with open('web/calendar.html', 'w') as f:
+        f.write(cal_html)
+
     # Stable filenames for the root README: the two most recent non-empty months.
     latest_y, latest_m = months[-1]
     vis.plot_month_calendar(df_cal, year=latest_y, month=latest_m, save_name='month_calendar.png')

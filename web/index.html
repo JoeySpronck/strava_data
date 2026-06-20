@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#fb5200">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Strava">
+<title>Strava Training Dashboard · Joey Spronck</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">STRAVA<span class="dot">·</span>DATA</span>
+    <nav class="nav">
+      <a href="#progression">Progress</a>
+      <a href="#plans">Plans</a>
+      <a href="#sports">Sports</a>
+      <a href="#calendar">Calendar</a>
+    </nav>
+    <span class="meta">Updated <span id="build">__BUILD_TOKEN__</span></span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero">
+    <h1>Weekly Running Plans &amp; Progress</h1>
+    <div class="who">Joey Spronck</div>
+    <p>Running, cycling, hiking and strength — pulled from the Strava API and regenerated
+       automatically. See the
+       <a href="https://github.com/JoeySpronck/strava_data">main branch</a>
+       for what this repo is and how it works.</p>
+  </div>
+
+  <!-- Weekly volume progression -->
+  <section id="progression">
+    <div class="section-head"><h2>📈 Weekly volume progression</h2></div>
+    <p class="note">Based on the 10% rule, but build-up grows at +25%/week while the target stays
+      below the dark-gray dashed line — the highest 3-consecutive-week average volume of the last
+      half year (a previously sustained level). Once a +25% step would reach that line, growth
+      reverts to +10%. The next unreached target (this or next week) drives the plots below.</p>
+    <div class="card hero-plot">
+      <img src="../plots/weekly_distance_targets.png" alt="Weekly distance targets" loading="lazy">
+    </div>
+  </section>
+
+  <!-- Example week plans -->
+  <section id="plans">
+    <div class="section-head"><h2>Example week plans</h2></div>
+    <p class="note">How a week could be divided into multiple runs, given the target mileage.</p>
+    <div class="grid">
+      <div class="card"><img src="../plots/week_plan_3_runs.png" alt="Week plan (3 runs)" loading="lazy"></div>
+      <div class="card"><img src="../plots/week_plan_4_runs.png" alt="Week plan (4 runs)" loading="lazy"></div>
+      <div class="card"><img src="../plots/week_plan_5_runs.png" alt="Week plan (5 runs)" loading="lazy"></div>
+    </div>
+  </section>
+
+  <!-- Current / next week plans -->
+  <section>
+    <div class="section-head"><h2>Current / next week plans</h2></div>
+    <p class="note">Ran runs in white, proposed runs in orange — auto-updated, and trying to stick
+      to the schemes above.</p>
+    <div class="grid">
+      <div class="card"><img src="../plots/current_week_plan_3_runs.png" alt="Current week (3 runs)" loading="lazy"></div>
+      <div class="card"><img src="../plots/current_week_plan_4_runs.png" alt="Current week (4 runs)" loading="lazy"></div>
+      <div class="card"><img src="../plots/current_week_plan_5_runs.png" alt="Current week (5 runs)" loading="lazy"></div>
+    </div>
+  </section>
+
+  <!-- Weekly stacked plots -->
+  <section id="sports">
+    <div class="section-head"><h2>Weekly stacked plots</h2></div>
+    <p class="note">Stacked barplots showing run stacks for each week.</p>
+
+    <div class="sub">Color = Risk</div>
+    <p class="note">Risk combines distance from the normal distribution — faster and longer runs
+      contribute more risk, slower and shorter less.</p>
+    <div class="card"><img src="../plots/weekly_risk.png" alt="Weekly risk" loading="lazy"></div>
+
+    <div class="sub">Color = Pace</div>
+    <div class="card"><img src="../plots/weekly_pace.png" alt="Weekly pace" loading="lazy"></div>
+
+    <div class="sub">Color = Distance</div>
+    <div class="card"><img src="../plots/weekly_distance.png" alt="Weekly distance" loading="lazy"></div>
+  </section>
+
+  <!-- Cycling -->
+  <section>
+    <div class="section-head"><h2>🚴 Cycling</h2></div>
+    <p class="note">Each bar = one week. Each stack segment = one ride — height is distance, color
+      is average speed (km/h).</p>
+    <div class="card"><img src="../plots/weekly_ride_speed.png" alt="Weekly cycling" loading="lazy"></div>
+  </section>
+
+  <!-- Hiking -->
+  <section>
+    <div class="section-head"><h2>🥾 Hiking</h2></div>
+    <p class="note">Each bar = one week. Each stack segment = one hike — height is distance, color
+      is carried weight (kg, parsed from title / description / private note; 0 if not reported).</p>
+    <div class="card"><img src="../plots/weekly_hike_weight.png" alt="Weekly hiking" loading="lazy"></div>
+  </section>
+
+  <!-- Strength -->
+  <section>
+    <div class="section-head"><h2>🏋️ Strength</h2></div>
+    <p class="note">Each bar = one week. Each stack segment = one session — height is total volume
+      (kg), color is volume rate (kg/min). Volume is parsed from <code>NNNN kg volume</code> in
+      description / private note.</p>
+    <div class="card"><img src="../plots/weekly_strength_volume.png" alt="Weekly strength" loading="lazy"></div>
+  </section>
+
+  <!-- All-sports overview -->
+  <section>
+    <div class="section-head"><h2>🏃 🚴 🥾 🏋️ All-sports overview</h2></div>
+    <p class="note">Running, cycling, hiking and strength stacked on a shared time axis. Color
+      encodes speed (run/ride), carried weight (hike) and volume rate (strength).</p>
+    <div class="card"><img src="../plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" loading="lazy"></div>
+  </section>
+
+  <!-- Monthly calendar -->
+  <section id="calendar">
+    <div class="section-head"><h2>📅 Monthly activity calendar</h2></div>
+    <p class="note">Strava-style month view: each day is a circle, filled on activity days (letter =
+      sport: <strong>T</strong>rail, <strong>R</strong>un, <strong>H</strong>ike,
+      <strong>S</strong>trength, <strong>B</strong>ike). Color and size follow the overview's metric
+      scale and bar magnitude. <a href="calendar.html">See all months →</a></p>
+    <div class="grid-2">
+      <div>
+        <div class="sub">This month</div>
+        <div class="card"><img src="../plots/month_calendar.png" alt="This month's activity calendar" loading="lazy"></div>
+      </div>
+      <div>
+        <div class="sub">Previous month</div>
+        <div class="card"><img src="../plots/month_calendar_prev.png" alt="Previous month's activity calendar" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>
+  Auto-generated from the Strava API via GitHub Actions ·
+  <a href="https://github.com/JoeySpronck/strava_data">source</a>
+</footer>
+
+</body>
+</html>

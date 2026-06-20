@@ -21,16 +21,31 @@ import re
 import sys
 
 PLOTS_DIR = "plots"
-# PLOTS.md is the plots dashboard that the Action renames to README.md on the
-# plot_updates branch (main keeps a short, repo-focused README.md untouched).
-MARKDOWN_FILES = ("PLOTS.md", "CALENDAR_PLOTS.md")
+# Files whose plot image references get the cache-busting token. PLOTS.md is the dashboard
+# the Action renames to README.md on the plot_updates branch; web/ holds the GitHub Pages site
+# (its pages reference ../plots/..., which still contains the 'plots/...' substring we rewrite).
+# (main keeps a short, repo-focused README.md untouched.)
+PATCHED_FILES = ("PLOTS.md", "CALENDAR_PLOTS.md", "web/index.html", "web/calendar.html")
+
+# HTML pages carry a __BUILD_TOKEN__ placeholder we replace with the human-readable
+# generation time, so the site shows when it was last updated.
+BUILD_PLACEHOLDER = "__BUILD_TOKEN__"
 
 
-def add_token(token, plots_dir=PLOTS_DIR, markdown_files=MARKDOWN_FILES):
+def _format_build_time(token):
+    """Turn a YYYYMMDDHHMMSS token into 'YYYY-MM-DD HH:MM UTC'; fall back to the raw token."""
+    if len(token) == 14 and token.isdigit():
+        t = token
+        return f"{t[0:4]}-{t[4:6]}-{t[6:8]} {t[8:10]}:{t[10:12]} UTC"
+    return token
+
+
+def add_token(token, plots_dir=PLOTS_DIR, patched_files=PATCHED_FILES):
     # Keep only filename/URL-safe characters so the token can't break paths.
     token = re.sub(r"[^0-9A-Za-z_-]", "", token)
     if not token:
         raise ValueError("token is empty after sanitisation")
+    build_time = _format_build_time(token)
 
     suffix = f".{token}.png"
     # renames: clean relative ref -> tokened relative ref
@@ -47,16 +62,18 @@ def add_token(token, plots_dir=PLOTS_DIR, markdown_files=MARKDOWN_FILES):
             tokened_ref = os.path.join(root, tokened).replace(os.sep, "/")
             renames[clean_ref] = tokened_ref
 
-    for md in markdown_files:
-        if not os.path.exists(md):
+    for fname in patched_files:
+        if not os.path.exists(fname):
             continue
-        with open(md) as fh:
+        with open(fname) as fh:
             text = fh.read()
         for clean_ref, tokened_ref in renames.items():
             # The full ref includes '.png', and that extension is the boundary: e.g.
             # 'plots/weekly_distance.png' can't match inside 'plots/weekly_distance_targets.png'.
             text = text.replace(clean_ref, tokened_ref)
-        with open(md, "w") as fh:
+        # Stamp the generation time into the HTML pages (no-op for the markdown files).
+        text = text.replace(BUILD_PLACEHOLDER, build_time)
+        with open(fname, "w") as fh:
             fh.write(text)
 
     print(f"Added token '{token}' to {len(renames)} plot(s).")
