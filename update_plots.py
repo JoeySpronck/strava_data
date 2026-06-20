@@ -95,14 +95,16 @@ this_week_target = vis.grow_target(base_completed, recovery_ceiling)
 target_reached = this_week_volume >= this_week_target
 
 # Target
+# week_target is this week's effective level: the goal while building toward it, or
+# the achieved volume once reached. It's the base the progression plot grows future
+# weeks from, so it must stay at the current week's level.
 week_target = this_week_target if not target_reached else max(this_week_volume, this_week_target)
 week_target = round(float(week_target), 1)
-week_ran = round(float(this_week_volume), 1)
-if week_ran > week_target:
-    week_target = round(vis.grow_target(week_ran, recovery_ceiling), 1)
-    target_next_week = True
-else:
-    target_next_week = False
+
+# Once this week's target is reached, this week is done — plan next week instead,
+# using a target grown one step from this week's level.
+target_next_week = target_reached
+plan_target = round(vis.grow_target(week_target, recovery_ceiling), 1) if target_next_week else week_target
 
 # --------------------------
 # UPDATE PLOTS
@@ -128,13 +130,13 @@ vis.plot_weekly_distance_targets(
 
 # Week plan plots
 for runs in [3, 4, 5]:
-    vis.plot_week_plan(week_target, runs, save_name=f'week_plan_{runs}_runs.png')
+    vis.plot_week_plan(plan_target, runs, save_name=f'week_plan_{runs}_runs.png')
 
 # Current week plan plots
 for runs in [3, 4, 5]:
     vis.plot_current_week_plan(
         df_runs,
-        week_target,
+        plan_target,
         runs=runs,
         target_next_week=target_next_week,
         save_name=f'current_week_plan_{runs}_runs.png'

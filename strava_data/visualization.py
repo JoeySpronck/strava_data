@@ -806,7 +806,7 @@ def plot_week_plan(target_km, runs=4, save_name=None):
     else:
         raise ValueError("Only 3, 4 or 5 runs supported.")
     values = target_to_proportions(target_km, target_proportions)
-    barplot(values, title=f"Week Plan for {target_km} km ({runs} runs)", save_name=save_name)
+    barplot(values, title=f"Example Plan for {target_km} km ({runs} runs)", save_name=save_name)
 
 def remaining_week_kms(runs_ran, target_km, runs=4):
     # --- Planned distribution ---
