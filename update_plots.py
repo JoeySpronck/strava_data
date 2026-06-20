@@ -120,6 +120,7 @@ vis.plot_weekly_distance_targets(
     this_week_target=this_week_target,
     this_week_volume=this_week_volume,
     target_reached=target_reached,
+    recovery_ceiling=recovery_ceiling,
     additional_weeks=4,
     last_weeks=7,
     save_name='weekly_distance_targets.png'
