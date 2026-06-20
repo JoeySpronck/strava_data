@@ -21,7 +21,9 @@ import re
 import sys
 
 PLOTS_DIR = "plots"
-MARKDOWN_FILES = ("README.md", "CALENDAR_PLOTS.md")
+# PLOTS.md is the plots dashboard that the Action renames to README.md on the
+# plot_updates branch (main keeps a short, repo-focused README.md untouched).
+MARKDOWN_FILES = ("PLOTS.md", "CALENDAR_PLOTS.md")
 
 
 def add_token(token, plots_dir=PLOTS_DIR, markdown_files=MARKDOWN_FILES):

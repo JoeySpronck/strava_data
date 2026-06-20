@@ -50,6 +50,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -B plot_updates
+          # On plot_updates the plots dashboard becomes the README so GitHub renders it
+          # for this branch. main keeps its own short, repo-focused README.md.
+          mv -f PLOTS.md README.md
           git add .
           COMMIT_DATE=$(date -u +"%Y-%m-%d")
           git commit -m "Update plots from Strava - ${COMMIT_DATE}" || echo "No changes to commit"
