@@ -1,5 +1,11 @@
 // Strava -> GitHub Actions relay (Cloudflare Worker)
 // --------------------------------------------------
+// ⚠️  AFTER EDITING THIS FILE YOU MUST RUN `wrangler deploy` (from webhook/).
+//     Committing to git does NOT update the live Worker — Cloudflare only changes
+//     on deploy. Skip it and production keeps running the OLD code while git looks
+//     up to date (this exact drift once silently disabled the debounce below).
+//     Verify after deploying: `wrangler tail`, edit an activity, confirm behavior.
+// --------------------------------------------------
 // This endpoint does three things:
 //   1. GET  -> answer Strava's one-time subscription validation handshake.
 //   2. POST -> on a real activity event, (re)start a debounce timer.

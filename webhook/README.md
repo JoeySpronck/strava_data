@@ -275,7 +275,11 @@ wrangler secret put STRAVA_VERIFY_TOKEN   # paste it
 **Rotate the GitHub token:** regenerate it on GitHub, then
 `wrangler secret put GH_TOKEN` again. Nothing else changes.
 
-**Update the Worker code:** edit `worker.js`, then `wrangler deploy`.
+**Update the Worker code:** edit `worker.js`, then **`wrangler deploy`** (run from
+`webhook/`). ⚠️ Mandatory and easy to forget: committing to git does **not** update
+the live Worker — Cloudflare only changes on deploy. Skip it and production silently
+keeps running the old code while the repo looks up to date. After deploying, verify
+with `wrangler tail` + a test edit before trusting the change.
 
 **Remove the webhook entirely:** delete the Strava subscription (Step 6's DELETE
 command), delete the Worker in the Cloudflare dashboard, and delete this folder.
