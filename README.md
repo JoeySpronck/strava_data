@@ -1,31 +1,104 @@
 # STRAVA DATA: Weekly Running Plans & Progress
 ###### Joey Spronck
+This repository tracks running progress and training plans. All data are updated via strava API.
 
-A self-updating training dashboard built on the Strava API. It pulls my activities,
-builds weekly volume targets and example week plans, and renders a set of progress
-plots that refresh automatically. The plots live on the `plot_updates` branch so `main` stays clean.
+These figures update automatically via GitHub Actions. See the [main branch](https://github.com/JoeySpronck/strava_data) for what this repo is and how it works.
+
+---
+### 📈 Weekly volume progression
+> Based on the 10% rule, but build-up grows at +25%/week while the target stays below the dark-gray dashed line — the highest 3-consecutive-week average volume of the last half year (a previously sustained level). Once a +25% step would reach that line, growth reverts to +10%. The next unreached target (this or next week) is used as the target for the following plots.
+<p align="left">
+  <img src="plots/weekly_distance_targets.20260701160613.png" alt="Weekly distance targets" width="500">
+</p>
+
+---
+### Example Week Plans
+> These plots show examples of how a week could be divided into multiple runs, given the target mileage.
 
 <p align="left">
-  <a href="https://github.com/JoeySpronck/strava_data/tree/plot_updates/README.md">
-    <img src="https://img.shields.io/badge/📈_View_Live_Training_Plots-FB5200?style=flat" alt="View Live Training Plots" width="320">
-  </a>
-  
-  <a href="https://joeyspronck.github.io/strava_data/web/">
-    <img src="https://img.shields.io/badge/🌐_Open_Web_Dashboard-1a1a1a?style=flat" alt="Open Web Dashboard" width="300">
-  </a>
+  <img src="plots/week_plan_3_runs.20260701160613.png" alt="Week plan (3 runs)" width="300">
+</p>
+<p align="left">
+  <img src="plots/week_plan_4_runs.20260701160613.png" alt="Week plan (4 runs)" width="300">
+</p>
+<p align="left">
+  <img src="plots/week_plan_5_runs.20260701160613.png" alt="Week plan (5 runs)" width="300">
+</p>
+
+---
+### Current/Next Week Plans
+> These plots automatically update and show the ran runs in white and proposed runs in orange. They try to somewhat stick to schemes plotted above.
+<p align="left">
+  <img src="plots/current_week_plan_3_runs.20260701160613.png" alt="Current week (3 runs)" width="300">
+</p>
+<p align="left">
+  <img src="plots/current_week_plan_4_runs.20260701160613.png" alt="Current week (4 runs)" width="300">
+</p>
+<p align="left">
+  <img src="plots/current_week_plan_5_runs.20260701160613.png" alt="Current week (5 runs)" width="300">
+</p>
+
+---
+### Weekly Stacked Plots
+> Stacked barplots, showing run stacks for each week. 
+
+#### Color = Risk 
+> Here risk is defined by combining distance from normal distribution. Faster and longer runs contribute to higher risk, slower and shorter to lower risk.
+<p align="left">
+  <img src="plots/weekly_risk.20260701160613.png" alt="Weekly risk" width="800">
+</p>
+
+#### Color = Pace 
+<p align="left">
+  <img src="plots/weekly_pace.20260701160613.png" alt="Weekly pace" width="800">
+</p>
+
+#### Color = Distance 
+<p align="left">
+  <img src="plots/weekly_distance.20260701160613.png" alt="Weekly distance" width="800">
+</p>
+
+---
+### 🚴 Cycling
+> Each bar = one week. Each stack segment = one ride — height is distance, color is average speed (km/h).
+<p align="left">
+  <img src="plots/weekly_ride_speed.20260701160613.png" alt="Weekly cycling" width="800">
+</p>
+
+---
+### 🥾 Hiking
+> Each bar = one week. Each stack segment = one hike — height is distance, color is carried weight (kg, parsed from title / description / private note; 0 if not reported).
+<p align="left">
+  <img src="plots/weekly_hike_weight.20260701160613.png" alt="Weekly hiking" width="800">
+</p>
+
+---
+### 🏋️ Strength
+> Each bar = one week. Each stack segment = one session — height is total volume (kg), color is volume rate (kg/min). Volume is parsed from `NNNN kg volume` in description / private note.
+<p align="left">
+  <img src="plots/weekly_strength_volume.20260701160613.png" alt="Weekly strength" width="800">
+</p>
+
+---
+### 🏃🚴🥾🏋️ All-Sports Overview
+> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength).
+<p align="left">
+  <img src="plots/weekly_overview_all_sports.20260701160613.png" alt="All-sports weekly overview" width="800">
+</p>
+
+---
+### 📅 Monthly Activity Calendar
+> Strava-style month view: each day is a circle, filled on activity days (letter = sport: **T**rail, **R**un, **H**ike, **S**trength, **B**ike). Color and size follow the overview's metric scale and bar magnitude. All months archived in [`CALENDAR_PLOTS.md`](CALENDAR_PLOTS.md).
+
+#### This month
+<p align="left">
+  <img src="plots/month_calendar.20260701160613.png" alt="This month's activity calendar" width="450">
+</p>
+
+#### Previous month
+<p align="left">
+  <img src="plots/month_calendar_prev.20260701160613.png" alt="Previous month's activity calendar" width="450">
 </p>
 
 ---
 
-## How it works
-
-- **`update_plots.py`** — fetches activities via the Strava API and regenerates every plot in `plots/`.
-- **`strava_data/`** — the package: API client, data wrangling, and all the plotting/visualization logic.
-- **`webhook/`** — a Cloudflare Worker that listens for Strava activity changes and triggers a plot refresh (debounced, so bursts of edits run once). Optional — see [`webhook/README.md`](webhook/README.md) to set it up.
-- **`web/`** — a styled HTML/CSS dashboard published via GitHub Pages (the *Open Web Dashboard* button above). Optional — see [`web/README.md`](web/README.md) to enable it.
-- **GitHub Actions** (`.github/workflows/update_plots.yml`) — runs `update_plots.py` daily, on push to `main`, manually via github actions, and on webhook trigger (when an activity is added/edited on strava), then publishes the regenerated plots and dashboard to the `plot_updates` branch.
-- **`dev/`** contains `playground.ipynb`, whis is a development notebook version of `update_plots.py`, and other development files. 
-
-I generally view the `plot_updates` branch via the Github app on my phone.
-The published `plot_updates` branch carries cache-busted image filenames (a per-run token)
-so the GitHub app stops serving stale images — `main` keeps clean filenames for development.
