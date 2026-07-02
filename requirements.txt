@@ -1,8 +1,0 @@
-pandas
-matplotlib
-scikit-learn
-numpy
-requests
-stravalib
-gemmini
-shapely

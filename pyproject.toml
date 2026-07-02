@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "strava_data"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "numpy",
+    "requests",
+    "stravalib",
+    "gemmini",
+    "shapely",
+]
+
+[tool.setuptools]
+# Explicit single-package declaration. The repo root holds several non-package
+# sibling dirs (dev/, web/, webhook/, plots/, secrets/); naming the package here
+# avoids setuptools auto-discovery erroring on "multiple top-level packages".
+packages = ["strava_data"]

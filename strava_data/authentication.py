@@ -6,9 +6,10 @@ os.environ["SILENCE_TOKEN_WARNINGS"] = "true"
 
 # Got main logic from:
 # https://github.com/stravalib/stravalib/blob/main/docs/get-started/how-to-get-strava-data-python.md
-def login():
-    if os.path.isfile("secrets/client_secrets.txt"):
-        with open("secrets/client_secrets.txt", "r") as f:
+def login(secrets_folder: str = "secrets") -> Client:
+    secrets_path = os.path.join(secrets_folder, "client_secrets.txt")
+    if os.path.isfile(secrets_path):
+        with open(secrets_path, "r") as f:
             # This file should contain your client_id and client_secret, separated by a comma
             client_id, client_secret = f.read().strip().split(",")
     elif "STRAVA_CLIENT_ID" in os.environ and "STRAVA_CLIENT_SECRET" in os.environ:
@@ -20,7 +21,7 @@ def login():
             "Please create the file or set the environment variables.")
     client = Client()
 
-    if not os.path.exists("secrets/strava_token.json") and "STRAVA_CLIENT_REFRESH_TOKEN" not in os.environ:
+    if not os.path.exists(os.path.join(secrets_folder, "strava_token.json")) and "STRAVA_CLIENT_REFRESH_TOKEN" not in os.environ:
         request_scope = ["read_all", "profile:read_all", "activity:read_all"]
         redirect_url = "http://127.0.0.1:5000/authorization"
         url = client.authorization_url(
@@ -29,18 +30,19 @@ def login():
             scope=request_scope,
         )
         webbrowser.open(url)
-        print("""You will see a url that looks like this. """,
+        print("After login and authorization, you'll be reirected to a new screen that may show 'Access to ... was denied'.\nThat is expected.\n")
+        print("""This page has an url that looks like this. """,
             """http://127.0.0.1:5000/authorization?state=&code=12323423423423423423423550&scope=read,activity:read_all,profile:read_all,read_all")""",
-            """Copy the values between code= and & in the url that you see in the browser. """)
+            """Copy the values between 'code=' and '&' in the url that you see in the browser, and return it in the input prompt.""")
         code = input("Please enter the code that you received: ")
         token_response = client.exchange_code_for_token(
             client_id=client_id, client_secret=client_secret, code=code)
-        with open("secrets/strava_token.json", "w") as f:
+        with open(os.path.join(secrets_folder, "strava_token.json"), "w") as f:
             json.dump(token_response, f)
     else:
-        if os.path.isfile("secrets/strava_token.json"):
+        if os.path.isfile(os.path.join(secrets_folder, "strava_token.json")):
             print("You have already authenticated once before. Refreshing your token now.")
-            with open("secrets/strava_token.json") as f:
+            with open(os.path.join(secrets_folder, "strava_token.json")) as f:
                 token_response = json.load(f)
             refresh_token = token_response["refresh_token"]
         else:
