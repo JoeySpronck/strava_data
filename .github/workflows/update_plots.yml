@@ -1,12 +1,12 @@
 name: Update plots from Strava
 
 on:
-  workflow_dispatch:  # allows manual trigger and wevbhook trigger (if configured)
-  # push:
-  #   branches:
-  #     - main  # regenerate plots after every push to main
-  # schedule:
-  #   - cron: '5 0 * * *'  # runs every day at 00:05 UTC (after midnight in europe)
+  workflow_dispatch:  # allows manual trigger and webhook trigger (if configured)
+  push:
+    branches:
+      - main  # regenerate plots after every push to main
+  schedule:
+    - cron: '5 0 * * *'  # runs every day at 00:05 UTC (after midnight in europe)
 
 jobs:
   update-plots:
