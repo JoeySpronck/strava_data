@@ -939,6 +939,14 @@ def remaining_week_kms(runs_ran, target_km, runs=4):
 #         save_name=save_name
 #     )
 
+def _remove_stale_plot(save_name):
+    """Delete a previously saved plot, so a plot that can't be made this run isn't shown stale."""
+    if save_name:
+        path = os.path.join(SAVE_FOLDER, save_name)
+        if os.path.exists(path):
+            os.remove(path)
+
+
 def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None, target_next_week=False):
     """
     Plot a realistic weekly running plan considering:
@@ -992,6 +1000,7 @@ def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None, target_
 
     if len(days_left) == 0:
         print("Week is over — no remaining days to plan.")
+        _remove_stale_plot(save_name)
         return
 
     # --- Compute remaining runs ---
@@ -1002,9 +1011,11 @@ def plot_current_week_plan(df_runs, week_target, runs=4, save_name=None, target_
 
     if n_remaining_runs == 0:
         print("No runs remaining — goal already met!")
+        _remove_stale_plot(save_name)
         return
     if len(days_left) < n_remaining_runs:
         print(f"IMPOSSIBLE: Only {len(days_left)} days left, need {n_remaining_runs} runs.")
+        _remove_stale_plot(save_name)
         return
 
     # --- Identify already-run days ---

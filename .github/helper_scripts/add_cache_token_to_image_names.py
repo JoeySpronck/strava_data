@@ -40,12 +40,37 @@ def _format_build_time(token):
     return token
 
 
+# A plot the run didn't produce (e.g. a 5-run week plan with only 4 days left) has no file.
+# Its wrapper — a markdown <p> or a site .card — is dropped instead of showing a broken image.
+_IMG = r'<img src="(?:\.\./)?(plots/[^"]+\.png)"[^>]*>'
+_WRAPPED_IMG = re.compile(
+    r'[ \t]*(?:<p[^>]*>\s*' + _IMG + r'\s*</p>|<div class="card">\s*' + _IMG + r'\s*</div>)[ \t]*\n?'
+)
+
+
+def prune_missing_plots(text):
+    """Remove wrapped plot images whose file does not exist (paths relative to the repo root)."""
+    def keep_if_present(m):
+        ref = m.group(1) or m.group(2)
+        return m.group(0) if os.path.exists(ref) else ""
+    return _WRAPPED_IMG.sub(keep_if_present, text)
+
+
 def add_token(token, plots_dir=PLOTS_DIR, patched_files=PATCHED_FILES):
     # Keep only filename/URL-safe characters so the token can't break paths.
     token = re.sub(r"[^0-9A-Za-z_-]", "", token)
     if not token:
         raise ValueError("token is empty after sanitisation")
     build_time = _format_build_time(token)
+
+    # Prune before renaming: existence is checked against the clean filenames.
+    for fname in patched_files:
+        if not os.path.exists(fname):
+            continue
+        with open(fname) as fh:
+            text = fh.read()
+        with open(fname, "w") as fh:
+            fh.write(prune_missing_plots(text))
 
     suffix = f".{token}.png"
     # renames: clean relative ref -> tokened relative ref
