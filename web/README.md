@@ -22,12 +22,21 @@ https://<your-username>.github.io/<your-repo>/web/
 | `index.html` | The dashboard. Mirrors the sections of `PLOTS.md`, pulling images from `../plots/`. |
 | `style.css` | Shared dark theme (black background, Strava orange). Used by both pages. |
 | `calendar.html` | The full monthly-calendar archive. **Generated** by `update_plots.py` — don't hand-edit. |
+| `decoupling.html` | Interactive aerobic-decoupling analyzer for one run: drop in a Strava export, drag two intervals, read the drift. |
+| `activity_file.js` | Reads a `.gpx` or `.fit` into sample streams — a port of `strava_data/activity_file.py`. |
+| `decoupling.js` | The maths behind that page — a port of `strava_data/decoupling.py`. Pure functions, no DOM. |
 | `README.md` | This file. |
 
 How it stays fresh: the same GitHub Action that regenerates the plots also
 rewrites the image URLs here with a per-run cache-busting token and stamps the
 "Updated …" time (see [`.github/helper_scripts/add_cache_token_to_image_names.py`](../.github/helper_scripts/add_cache_token_to_image_names.py)).
 So Pages updates on the exact same daily / push / webhook cadence as the plots.
+
+The decoupling page needs no data from the Action: you give it a file exported from
+Strava (⋯ → *Export GPX*, or *Export Original* for a watch's `.fit`), and it is parsed and
+analysed in the browser without being uploaded. `tests/test_decoupling_parity.py` pins
+both JavaScript files to their Python twins; `node tests/test_page_smoke.mjs` covers the
+page's wiring.
 
 > **Why `web/` and not `docs/`?** GitHub Pages can serve from the branch root or a
 > `docs/` folder. The plot images live at the repo root (`plots/`), so the site
@@ -74,3 +83,7 @@ python -m http.server         # serve the repo
 
 (The "Updated" stamp shows a literal `__BUILD_TOKEN__` placeholder locally; the
 Action fills it in on publish.)
+
+The decoupling page loads its scripts as ES modules, which browsers refuse over `file://`,
+so open it through the server (http://localhost:8000/web/decoupling.html), not by
+double-clicking the file.
