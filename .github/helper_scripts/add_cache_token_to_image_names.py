@@ -25,7 +25,8 @@ PLOTS_DIR = "plots"
 # the Action renames to README.md on the plot_updates branch; web/ holds the GitHub Pages site
 # (its pages reference ../plots/..., which still contains the 'plots/...' substring we rewrite).
 # (main keeps a short, repo-focused README.md untouched.)
-PATCHED_FILES = ("PLOTS.md", "CALENDAR_PLOTS.md", "web/index.html", "web/calendar.html")
+PATCHED_FILES = ("PLOTS.md", "CALENDAR_PLOTS.md", "web/index.html", "web/calendar.html",
+                 "web/decoupling.html")
 
 # HTML pages carry a __BUILD_TOKEN__ placeholder we replace with the human-readable
 # generation time, so the site shows when it was last updated.

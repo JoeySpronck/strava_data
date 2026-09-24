@@ -8,6 +8,18 @@ on:
   schedule:
     - cron: '5 0 * * *'  # runs every day at 00:05 UTC (after midnight in europe)
 
+# One run at a time. Two overlapping runs would each spend a full Strava request budget
+# (doubling the API use for the same data) and would both force-push plot_updates, so the
+# second push could undo the first. Queue rather than cancel, so a webhook-triggered run
+# still happens once the scheduled one has finished.
+concurrency:
+  group: update-plots
+  cancel-in-progress: false
+
+permissions:
+  contents: write  # push to plot_updates
+  actions: write   # delete superseded cache entries
+
 jobs:
   update-plots:
     if: github.ref == 'refs/heads/main'
@@ -30,6 +42,25 @@ jobs:
         run: |
           pip install -e .
 
+      # The Strava mirror in .cache/ is what keeps this workflow under the API rate
+      # limits: every activity's description and streams are fetched exactly once, ever.
+      # Restore and save are split (rather than the combined actions/cache) so the save
+      # runs even when the script fails — a partial backfill is still worth keeping, and
+      # the next run resumes from it. The key is unique per run and the restore-key is a
+      # prefix, which is the rolling-cache pattern: always read the newest, always write
+      # a new one. Entries expire after 7 days unused, which the daily schedule prevents;
+      # if one is ever lost the cache simply rebuilds from Strava over a day or two.
+      - name: Restore Strava cache
+        id: strava-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: strava-cache-${{ github.run_id }}
+          restore-keys: |
+            strava-cache-
+
+      # update_plots.py syncs first (top up the cache within its request budget), then
+      # renders every plot from the cache and exports the public streams to web/data/.
       - name: Run update script
         env:
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
@@ -37,6 +68,32 @@ jobs:
           STRAVA_CLIENT_REFRESH_TOKEN: ${{ secrets.STRAVA_CLIENT_REFRESH_TOKEN }}
         run: |
           python update_plots.py
+
+      - name: Save Strava cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache
+          key: strava-cache-${{ github.run_id }}
+
+      # Each run writes a new entry, so without this the repo would accumulate one
+      # ~50 MB cache per day against the 10 GB repository limit. Never fatal: if the
+      # cleanup fails, GitHub still evicts the oldest entries on its own.
+      - name: Delete superseded cache entries
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" \
+            --jq ".actions_caches[]
+                  | select(.key | startswith(\"strava-cache-\"))
+                  | select(.key != \"strava-cache-${GITHUB_RUN_ID}\")
+                  | .id" \
+          | while read -r cache_id; do
+              echo "Deleting cache $cache_id"
+              gh api --method DELETE "/repos/${GITHUB_REPOSITORY}/actions/caches/${cache_id}" || true
+            done
 
       - name: Add cache-busting token to plot filenames
         # Append a per-run token to every plot filename + patch the markdown refs so the
@@ -54,6 +111,10 @@ jobs:
           # for this branch. main keeps its own short, repo-focused README.md.
           mv -f PLOTS.md README.md
           git add .
+          # web/data/ is gitignored so local runs never stage tens of MB of JSON onto
+          # main; on plot_updates it is exactly what GitHub Pages serves to the
+          # decoupling page, so force it in. .cache/ stays ignored either way.
+          git add -f web/data
           COMMIT_DATE=$(date -u +"%Y-%m-%d")
           git commit -m "Update plots from Strava - ${COMMIT_DATE}" || echo "No changes to commit"
           git push origin plot_updates --force

@@ -85,6 +85,9 @@ a:hover { text-decoration: underline; }
 }
 .hero .who { color: var(--muted); font-size: .95rem; }
 .hero p { color: var(--muted); max-width: 60ch; }
+/* The decoupling page is a tool rather than a column of prose, so its intro runs the
+   full width the charts and cards below it already use. */
+.hero.wide p { max-width: none; }
 
 /* ---- section ---- */
 section { margin-top: 40px; }
@@ -157,3 +160,237 @@ footer {
   color: var(--muted);
   font-size: .9rem;
 }
+
+/* ==========================================================================
+   Decoupling page (decoupling.html)
+   The interactive twin of dev/aerobic_decoupling.ipynb: pick an activity, drag two
+   intervals over it, and read how much efficiency drifted between them. All of the
+   analysis happens in the browser from the JSON the Action publishes.
+   ========================================================================== */
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.controls label { color: var(--muted); font-size: .82rem; }
+.controls select {
+  flex: 1 1 260px;
+  min-width: 0;
+  max-width: 100%;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: .9rem;
+}
+.controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* analysis layout: chart + map on the left, statistics on the right; one column
+   once there is no longer room for two. */
+.analysis {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .analysis { grid-template-columns: minmax(0, 1fr); }
+}
+
+.plot { width: 100%; min-height: 260px; }
+.map { width: 100%; height: 300px; border-radius: 8px; overflow: hidden; }
+
+.status {
+  color: var(--muted);
+  font-size: .88rem;
+  padding: 26px 4px;
+}
+.status.error { color: var(--accent); }
+
+/* ---- interval sliders ----
+   One track carries all four handles: interval 1's pair and interval 2's pair, both
+   filled orange. The inputs are transparent and only their thumbs take pointer events,
+   so a handle underneath stays reachable where two overlap. The numbers are overlay
+   spans rather than thumb pseudo-elements, which native range thumbs cannot have —
+   JS keeps them over their handle with the same inset maths the browser uses. */
+/* The track's left/right margins are set from JS to the chart's own plot margins, so
+   slider position and graph x-position are the same coordinate. The inputs then overhang
+   the track by half a thumb at each end, which is exactly the inset a range input applies
+   to keep its thumb inside itself — so a handle centre travels 0%..100% of the track and
+   lines up with the matching point on the graph below. */
+.interval-controls { margin: 2px 0 6px; }
+
+.range {
+  --thumb: 30px;
+  position: relative;
+  height: 40px;
+  display: flex;
+  align-items: center;
+}
+.range-track,
+.range-fill {
+  position: absolute;
+  height: 6px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.range-track {
+  left: 0;
+  right: 0;
+  background: #2e2e2e;
+}
+.range-fill { background: var(--accent); }
+
+.range input[type="range"] {
+  position: absolute;
+  left: calc(var(--thumb) / -2);
+  width: calc(100% + var(--thumb));
+  margin: 0;
+  height: 40px;
+  background: none;
+  appearance: none;
+  -webkit-appearance: none;
+  pointer-events: none;  /* only the thumbs are grabbable */
+}
+.range input[type="range"]:focus { outline: none; }
+.range input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 50%;
+  background: #000;
+  border: 3px solid var(--accent);
+  cursor: grab;
+}
+.range input[type="range"]::-moz-range-thumb {
+  pointer-events: auto;
+  box-sizing: border-box;
+  width: var(--thumb);
+  height: var(--thumb);
+  border-radius: 50%;
+  background: #000;
+  border: 3px solid var(--accent);
+  cursor: grab;
+}
+.range input[type="range"]:active::-webkit-slider-thumb { cursor: grabbing; }
+.range input[type="range"]:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--text); outline-offset: 2px; }
+.range input[type="range"]:focus-visible::-moz-range-thumb { outline: 2px solid var(--text); outline-offset: 2px; }
+.range input[type="range"]::-moz-range-track { background: none; }
+
+/* The interval number sitting on its handle. */
+.handle-label {
+  position: absolute;
+  top: 50%;
+  width: var(--thumb);
+  margin-left: calc(var(--thumb) / -2);
+  transform: translateY(-50%);
+  text-align: center;
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: var(--thumb);
+  color: var(--text);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---- statistics panel ---- */
+.stats { display: grid; gap: 10px; }
+.stats .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.stat-card {
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+.stat-card h3 {
+  margin: 0;
+  font-size: .78rem;
+  letter-spacing: .04em;
+  color: var(--accent);
+}
+.stat-card .span {
+  color: var(--muted);
+  font-size: .72rem;
+  font-variant-numeric: tabular-nums;
+}
+/* Whole-activity card: the same card, but its metrics run across the width and wrap
+   onto a second row rather than stacking into a tall column. */
+#overall { margin-bottom: 18px; }
+.stat-card.full .metrics-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 4px 14px;
+  margin-top: 2px;
+}
+.stat-card.full .span { margin-bottom: 4px; }
+
+.metric { margin-top: 9px; }
+.metric .name { color: var(--muted); font-size: .68rem; line-height: 1.25; }
+.metric .value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.metric .unit { font-size: .72rem; font-weight: 400; margin-left: 3px; color: var(--text); }
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+.panel h3 {
+  margin: 0 0 4px;
+  font-size: .76rem;
+  letter-spacing: .04em;
+  color: var(--muted);
+}
+.change {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0;
+}
+.change .name { color: var(--muted); font-size: .78rem; }
+.change .value { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.panel.headline { border-color: var(--accent); }
+.panel.headline .big {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.panel.headline .label { color: var(--muted); font-size: .72rem; }
+.hint, .panel .hint { color: var(--muted); font-size: .72rem; margin: 6px 0 0; }
+
+/* basemap picker under the map */
+.map-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 2px 2px;
+}
+.map-controls label { color: var(--muted); font-size: .78rem; }
+.map-controls select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 9px;
+  font: inherit;
+  font-size: .82rem;
+}
+.map-controls select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }

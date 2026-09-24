@@ -3,38 +3,48 @@ import re
 import strava_data
 import strava_data.authentication
 import strava_data.visualization
+import strava_data.sync
 importlib.reload(strava_data)
 importlib.reload(strava_data.authentication)
 importlib.reload(strava_data.visualization)
+importlib.reload(strava_data.sync)
 from strava_data.authentication import login
 import strava_data.visualization as vis
+import strava_data.sync as sync
+from strava_data.store import LocalStore
 import pandas as pd
 import numpy as np
 import os
 
 vis.SHOW_PLOTS = False
 
+CACHE_DIR = ".cache"          # persisted between CI runs via the Actions cache
+WEB_DATA_DIR = os.path.join("web", "data")
+# How many Strava requests one run may spend topping up the cache. The default leaves
+# headroom under the 100-per-15-minutes read limit; lower it when running locally so a
+# manual run does not use up the budget the scheduled run needs.
+SYNC_MAX_REQUESTS = int(os.environ.get("STRAVA_SYNC_MAX_REQUESTS", sync.DEFAULT_MAX_REQUESTS))
+
 # --------------------------
-# LOGIN & GET ACTIVITIES
+# LOGIN & SYNC
 # --------------------------
+# sync() rebuilds the activity index every run, then spends a fixed request budget topping
+# up whatever per-activity data is still missing (descriptions, sample streams). Everything
+# below reads from that store rather than the API, so this script costs a handful of
+# requests once the cache has caught up, however large the history gets.
 client = login()
-activities_object = client.get_activities(limit=1000)
-activities = list(activities_object)
+store = LocalStore(CACHE_DIR)
+athlete_id, activity_rows = sync.sync(client, store, max_requests=SYNC_MAX_REQUESTS)
 
-def get_activity_data(activity):
-    activity_dict = dict(activity)
-    col_names = ['id','type', 'name', 'distance', 'moving_time', 'elapsed_time',
-                 'total_elevation_gain', 'start_date', 'start_latlng', 'kilojoules',
-                 'average_heartrate', 'max_heartrate', 'elev_high', 'elev_low',
-                 'average_speed', 'max_speed']
-    row = {k: activity_dict[k] for k in col_names}
-    # sport_type distinguishes trail runs (type is the legacy 'Run' for both); start_date_local
-    # gives the correct calendar day. Both are optional in the summary payload, so .get them.
-    row['sport_type'] = activity_dict.get('sport_type')
-    row['start_date_local'] = activity_dict.get('start_date_local')
-    return row
+df_activities = pd.DataFrame(activity_rows)
 
-df_activities = pd.DataFrame([get_activity_data(a) for a in activities])
+
+def details_frame(ids):
+    """DataFrame[id, description, private_note] from the synced cache, never the API."""
+    ids = list(ids)
+    details = sync.load_details(store, athlete_id, ids)
+    return pd.DataFrame([{"id": i, **details[int(i)]} for i in ids])
+
 
 # --------------------------
 # RESET PLOT FOLDER
@@ -146,9 +156,9 @@ for runs in [3, 4, 5]:
 # HIKE & STRENGTH SUPPORT
 # --------------------------
 # Descriptions / private notes need a per-activity get_activity call (the summary API
-# omits them). fetch_text_fields caches results to .cache/ keyed by id, so re-runs only
-# hit the API for new activities — this is what keeps us under the rate limit.
-from strava_data.activity_cache import fetch_text_fields
+# omits them), so sync() has already fetched and cached them; details_frame just reads
+# that cache. An activity synced too recently to have been fetched yet simply comes back
+# with None and is picked up on a later run.
 
 KG_PATTERN = re.compile(r'(\d+)\s*kg', re.IGNORECASE)
 VOLUME_PATTERN = re.compile(r'(\d{2,7})\s*kg\s*volume', re.IGNORECASE)
@@ -176,8 +186,7 @@ if len(df_hikes) > 0:
     df_hikes['distance_km'] = df_hikes['distance'] / 1000
     df_hikes['week'] = df_hikes['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
-    hike_text = fetch_text_fields(client, df_hikes['id'].tolist())
-    df_hikes = df_hikes.merge(hike_text, on='id', how='left')
+    df_hikes = df_hikes.merge(details_frame(df_hikes['id']), on='id', how='left')
     df_hikes['weight_kg'] = df_hikes.apply(
         lambda r: _first_int_match(KG_PATTERN, r['name'], r.get('description'), r.get('private_note')) or 0,
         axis=1,
@@ -209,8 +218,7 @@ if len(df_strength) > 0:
     df_strength['week'] = df_strength['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
     df_strength['time_min'] = df_strength['moving_time'] / 60
 
-    strength_text = fetch_text_fields(client, df_strength['id'].tolist())
-    df_strength = df_strength.merge(strength_text, on='id', how='left')
+    df_strength = df_strength.merge(details_frame(df_strength['id']), on='id', how='left')
     df_strength['volume_kg'] = df_strength.apply(
         lambda r: _first_int_match(VOLUME_PATTERN, r.get('description'), r.get('private_note')),
         axis=1,
@@ -461,6 +469,14 @@ if len(df_cal) > 0:
     if len(months) >= 2:
         prev_y, prev_m = months[-2]
         vis.plot_month_calendar(df_cal, year=prev_y, month=prev_m, save_name='month_calendar_prev.png')
+
+# --------------------------
+# EXPORT DATA FOR THE WEB PAGE
+# --------------------------
+# The decoupling page does its own analysis in the browser, so it needs the sample streams
+# rather than a rendered image. Only public activities and only the streams go out — the
+# descriptions and private notes stay in the cache. See strava_data/sync.py:export_web.
+sync.export_web(store, athlete_id, WEB_DATA_DIR)
 
 print("All plots updated and saved to the plots/ folder.")
 print("DONE")

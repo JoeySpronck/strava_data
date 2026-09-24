@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#fb5200">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Decoupling">
+<title>Aerobic Decoupling · Joey Spronck</title>
+<link rel="stylesheet" href="style.css">
+<!-- The "map" bundle is cartesian charts plus the MapLibre map traces: the two things
+     this page draws, at a third of the full Plotly build. Pinned, because an unpinned
+     CDN version is a page that breaks on someone else's release day.
+     Note this is the 4.x bundle: 3.x had no plotly-map build, and its plotly-mapbox one
+     ships only the deprecated mapbox traces. The page asks the schema which map trace it
+     actually got (see mapTraceType), so it copes either way. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/4.1.1/plotly-map.min.js"
+        integrity="sha512-+t+G1stHMKTBcnQ5uGLnGuRogF2QIbHPnl6VOCm/AJZS8s6e8G7AWL7ioEPgOibLf1qpE4Bx7fOw96ubFuPC1Q=="
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <span class="brand">STRAVA<span class="dot">·</span>DATA</span>
+    <nav class="nav">
+      <a href="index.html">← Dashboard</a>
+      <a href="calendar.html">Calendar</a>
+    </nav>
+    <span class="meta">Updated __BUILD_TOKEN__</span>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="hero wide">
+    <h1>Aerobic decoupling</h1>
+    <p>Pick a session, drag two intervals over it, and see how much efficiency drifted
+      between them. Efficiency factor is normalized graded pace divided by heart rate: on
+      an honest aerobic effort it barely moves, and as aerobic fitness runs out the same
+      pace starts costing more heartbeats. Decoupling is that drop, so lower is better —
+      under about 5% is the usual marker for an aerobically sound long run.</p>
+  </div>
+
+  <section>
+    <div class="section-head"><h2>Session</h2></div>
+    <div class="controls">
+      <label for="activity">Activity</label>
+      <select id="activity" aria-label="Activity to analyse"></select>
+    </div>
+
+    <div id="status" class="status">Loading activities…</div>
+
+    <div id="app" hidden>
+      <div class="stats" id="overall"></div>
+
+      <div class="analysis">
+        <div>
+          <div class="card" style="padding:8px">
+            <!-- The slider lives in the chart card, and its track is inset by the plot's
+                 own margins, so a handle sits directly above the moment it selects. -->
+            <div class="interval-controls">
+              <div class="range" id="range">
+                <div class="range-track"></div>
+                <div class="range-fill" id="fill1"></div>
+                <div class="range-fill" id="fill2"></div>
+                <input type="range" id="i1start" min="0" max="1000" value="200" step="1"
+                       aria-label="Interval 1 start">
+                <input type="range" id="i1end" min="0" max="1000" value="400" step="1"
+                       aria-label="Interval 1 end">
+                <input type="range" id="i2start" min="0" max="1000" value="600" step="1"
+                       aria-label="Interval 2 start">
+                <input type="range" id="i2end" min="0" max="1000" value="800" step="1"
+                       aria-label="Interval 2 end">
+                <span class="handle-label" id="label0">1</span>
+                <span class="handle-label" id="label1">1</span>
+                <span class="handle-label" id="label2">2</span>
+                <span class="handle-label" id="label3">2</span>
+              </div>
+            </div>
+            <div id="chart" class="plot"></div>
+          </div>
+          <div class="card" style="padding:8px;margin-top:16px">
+            <div id="map" class="map"></div>
+            <p class="hint" id="mapnote" style="margin:6px 2px 0"></p>
+            <div class="map-controls">
+              <label for="mapstyle">Basemap</label>
+              <select id="mapstyle" aria-label="Basemap style">
+                <option value="dark">Dark</option>
+                <option value="satellite">Satellite</option>
+                <option value="street">Street</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="stats" id="stats"></div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer>Analysis runs in your browser on data exported from the Strava API by GitHub
+  Actions · <a href="https://github.com/JoeySpronck/strava_data">source</a></footer>
+
+<script type="module">
+/*
+ * Page logic only: fetching, widgets and drawing. Every number shown comes from
+ * decoupling.js, which is the pure port of strava_data/decoupling.py and is what the
+ * parity test pins. Nothing here does arithmetic on a metric.
+ */
+import {
+  loadStreams, prepare, analyzeInterval, comparisonMetrics, decouplingLabel,
+  intervalsAreValid, paceAxisRange, SMOOTH_WINDOW_S,
+  formatPace, formatDuration, formatChange, formatValue,
+} from './decoupling.js';
+
+// One configurable base URL for the data. Static JSON on Pages today; point it at a
+// logged-in Worker serving the same shapes later with ?data=https://...
+const params = new URLSearchParams(location.search);
+const DATA_BASE = (params.get('data') || 'data').replace(/\/$/, '');
+
+const COLORS = {
+  accent: '#fb5200',
+  text: '#ececec',
+  muted: '#8a8a8a',
+  grid: '#262626',
+  panel: '#141414',
+  // Both intervals are orange, as in the notebook. On the chart they are shaded bands
+  // that never overlap (the handles enforce the order), and on the map interval 2 gets a
+  // black underlay so it stays readable where the two stretches share a path.
+  interval1: 'rgba(251, 82, 0, 0.14)',
+  interval2: 'rgba(251, 82, 0, 0.26)',
+};
+// Plotly's plot area starts and ends these many pixels inside the chart div. The slider
+// track is inset by the same amounts, which is what makes a handle line up with the
+// moment below it, so these two uses must stay the same numbers.
+const PLOT_MARGIN = { left: 52, right: 12 };
+const FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+// Plotly redraws every point it is given; a 10,000-sample trail run is slow to pan on a
+// phone and indistinguishable from a thinned one at screen resolution. The maths always
+// runs on the full arrays — this only thins what is drawn.
+const MAX_DRAWN_POINTS = 2000;
+const MIN_INTERVAL_FRACTION = 0.01;  // a hair of the session, so a thumb can't swallow the other
+
+const el = (id) => document.getElementById(id);
+const statusBox = el('status');
+const app = el('app');
+
+let state = null;      // {doc, data, span, drawIndex}
+let mapMode = 'none';  // 'tiles' | 'plain' | 'none'
+let byId = new Map();  // activity id -> its index row
+
+// Trail runs carry type "Run" with sport_type "TrailRun", so the legacy type is the one
+// that answers "is this a run".
+const isRun = (activity) => activity.type === 'Run';
+
+function setStatus(message, isError = false) {
+  statusBox.textContent = message;
+  statusBox.hidden = !message;
+  statusBox.classList.toggle('error', isError);
+}
+
+async function getJSON(url) {
+  const response = await fetch(url, { cache: 'no-cache' });
+  if (!response.ok) throw new Error(`${response.status} ${response.statusText} for ${url}`);
+  return response.json();
+}
+
+// ---------------------------------------------------------------- activities
+
+function describe(activity) {
+  const when = new Date(activity.start_date_local || activity.start_date);
+  const date = when.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const km = (activity.distance / 1000).toFixed(1);
+  const minutes = Math.round((activity.moving_time || 0) / 60);
+  return `${date} · ${activity.name} · ${km} km · ${minutes} min`;
+}
+
+async function boot() {
+  try {
+    const roster = await getJSON(`${DATA_BASE}/athletes.json`);
+    const athleteId = params.get('athlete') || (roster.athletes[0] && roster.athletes[0].id);
+    if (!athleteId) throw new Error('no athletes in the exported data');
+
+    const index = await getJSON(`${DATA_BASE}/athletes/${athleteId}/activities.json`);
+    if (!index.activities.length) {
+      setStatus('No activities have been exported yet. The daily job backfills them a '
+        + 'batch at a time, so check back tomorrow.');
+      return;
+    }
+    // Under five minutes there is not enough of a session for two intervals to say
+    // anything about drift, so those never reach the picker.
+    const activities = index.activities.filter((a) => (a.moving_time || 0) >= 300);
+    if (!activities.length) {
+      setStatus(`None of the ${index.activities.length} exported activities is long `
+        + 'enough (5 minutes) to split into two intervals.');
+      return;
+    }
+
+    const runs = activities.filter(isRun);
+    const others = activities.filter((a) => !isRun(a));
+
+    const select = el('activity');
+    select.innerHTML = '';
+    for (const [label, group] of [['Runs', runs], ['Other activities', others]]) {
+      if (!group.length) continue;
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = label;
+      for (const activity of group) {
+        const option = document.createElement('option');
+        option.value = activity.id;
+        option.textContent = describe(activity);
+        optgroup.append(option);
+      }
+      select.append(optgroup);
+    }
+
+    // Default to the longest run: a short easy run has too little in it for a decoupling
+    // number to mean anything, and a ride or hike is not what the model is for.
+    const pool = runs.length ? runs : activities;
+    const longest = pool.reduce((a, b) => (b.moving_time > a.moving_time ? b : a));
+    select.value = String(params.get('activity') || longest.id);
+    if (!select.value) select.value = String(longest.id);
+    byId = new Map(activities.map((a) => [String(a.id), a]));
+
+    select.addEventListener('change', () => loadActivity(athleteId, select.value));
+    await loadActivity(athleteId, select.value);
+  } catch (error) {
+    setStatus(`Could not load the exported data: ${error.message}`, true);
+  }
+}
+
+async function loadActivity(athleteId, activityId) {
+  setStatus('Loading activity…');
+  app.hidden = true;
+  try {
+    const doc = await getJSON(`${DATA_BASE}/athletes/${athleteId}/streams/${activityId}.json`);
+    const activity = byId.get(String(activityId));
+    // Strava reports running cadence one foot at a time, so 170 spm arrives as 85;
+    // cycling cadence is already a whole-crank rpm and must be left alone.
+    const running = !activity || isRun(activity);
+    const data = prepare(loadStreams(doc), { doubleCadence: running });
+    if (data.n < 10) throw new Error('not enough usable samples in this activity');
+
+    const start = data.timeMin[0];
+    const end = data.timeMin[data.n - 1];
+    state = {
+      doc, data, start, span: end - start,
+      drawIndex: thinIndex(data.n),
+      cadenceUnit: running ? 'spm' : 'rpm',
+    };
+
+    const subtitle =
+      (activity ? `${describe(activity)} · ` : '')
+      + `${doc.n.toLocaleString()} samples over ${formatDuration(end - start)}`
+      + (data.hasLatlng ? '' : ' · no GPS route recorded')
+      + (activity && !isRun(activity)
+        ? ` · note: this is a ${(activity.sport_type || activity.type || 'non-run').toLowerCase()}, `
+          + 'and normalized graded pace models the energy cost of running'
+        : '');
+
+    setStatus('');
+    app.hidden = false;
+    renderOverall(subtitle);
+    // Inset the track to the plot area so the handles line up with the graph below.
+    el('range').style.marginLeft = `${PLOT_MARGIN.left}px`;
+    el('range').style.marginRight = `${PLOT_MARGIN.right}px`;
+    resetSliders();
+    drawChart();
+    await drawMap();   // sets mapMode, which update() needs to highlight the intervals
+    update();
+  } catch (error) {
+    setStatus(`Could not load that activity: ${error.message}`, true);
+  }
+}
+
+/** Evenly spaced sample indices for drawing, always including the last one. */
+function thinIndex(n) {
+  if (n <= MAX_DRAWN_POINTS) return null;
+  const step = Math.ceil(n / MAX_DRAWN_POINTS);
+  const index = [];
+  for (let i = 0; i < n; i += step) index.push(i);
+  if (index[index.length - 1] !== n - 1) index.push(n - 1);
+  return index;
+}
+
+function drawn(values) {
+  const { drawIndex } = state;
+  if (!drawIndex) return Array.from(values);
+  return drawIndex.map((i) => values[i]);
+}
+
+// ---------------------------------------------------------------- sliders
+
+const SLIDER_MAX = 1000;
+const handles = ['i1start', 'i1end', 'i2start', 'i2end'].map(el);
+const handleLabels = [0, 1, 2, 3].map((i) => el(`label${i}`));
+
+function resetSliders() {
+  const defaults = [200, 400, 600, 800];
+  handles.forEach((handle, i) => { handle.value = String(defaults[i]); });
+  paintRanges();
+}
+
+/** Slider position (0..1000) -> minutes into the session. */
+function toMinutes(position) {
+  return state.start + (state.span * Number(position)) / SLIDER_MAX;
+}
+
+/**
+ * Where a handle's centre sits, as a percentage of the track.
+ *
+ * The inputs overhang the track by half a thumb at each end (see style.css), which
+ * cancels the inset a range input applies to keep its thumb inside itself. So the centre
+ * really is at `fraction` of the track — and the track is the plot area, so it is at
+ * `fraction` of the graph's time axis too.
+ */
+function centreAt(fraction) {
+  return `${fraction * 100}%`;
+}
+
+function paintRanges() {
+  const values = handles.map((handle) => Number(handle.value) / SLIDER_MAX);
+
+  [[el('fill1'), values[0], values[1]], [el('fill2'), values[2], values[3]]]
+    .forEach(([fill, from, to]) => {
+      fill.style.left = centreAt(from);
+      fill.style.width = `${(to - from) * 100}%`;
+    });
+
+  handleLabels.forEach((label, i) => { label.style.left = centreAt(values[i]); });
+}
+
+/**
+ * Keep the four handles in a usable order after whichever one just moved: interval 1
+ * before interval 2, each at least a sliver wide. Pushing the neighbours along rather
+ * than refusing the drag is what makes this workable with a thumb on a phone.
+ */
+function enforceOrder(movedIndex) {
+  const gap = SLIDER_MAX * MIN_INTERVAL_FRACTION;
+  const values = handles.map((handle) => Number(handle.value));
+  values[movedIndex] = Math.min(Math.max(values[movedIndex], 0), SLIDER_MAX);
+
+  for (let i = movedIndex + 1; i < values.length; i++) {
+    values[i] = Math.max(values[i], values[i - 1] + gap);
+  }
+  for (let i = movedIndex - 1; i >= 0; i--) {
+    values[i] = Math.min(values[i], values[i + 1] - gap);
+  }
+  // Pushing may have run off an end; walk back the other way to fit everything in.
+  if (values[values.length - 1] > SLIDER_MAX) {
+    values[values.length - 1] = SLIDER_MAX;
+    for (let i = values.length - 2; i >= 0; i--) {
+      values[i] = Math.min(values[i], values[i + 1] - gap);
+    }
+  }
+  if (values[0] < 0) {
+    values[0] = 0;
+    for (let i = 1; i < values.length; i++) {
+      values[i] = Math.max(values[i], values[i - 1] + gap);
+    }
+  }
+  handles.forEach((handle, i) => { handle.value = String(values[i]); });
+}
+
+let pending = false;
+handles.forEach((handle, index) => {
+  handle.addEventListener('input', () => {
+    enforceOrder(index);
+    paintRanges();
+    // Dragging fires far faster than a redraw can keep up with; collapse a burst of
+    // events into one update per animation frame.
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; update(); });
+  });
+});
+
+// ---------------------------------------------------------------- drawing
+
+function axisDefaults(title) {
+  return {
+    title: { text: title, font: { size: 11, color: COLORS.muted } },
+    color: COLORS.muted,
+    gridcolor: COLORS.grid,
+    zeroline: false,
+    tickfont: { size: 10 },
+  };
+}
+
+function drawChart() {
+  const { data } = state;
+  const time = drawn(data.timeMin);
+  const traces = [
+    {
+      x: time, y: drawn(data.paceSmooth), name: 'Pace', yaxis: 'y',
+      type: 'scatter', mode: 'lines', connectgaps: false,
+      line: { color: COLORS.accent, width: 1.4 },
+      hovertemplate: '%{y:.2f} min/km<extra></extra>',
+    },
+    {
+      x: time, y: drawn(data.heartRate), name: 'Heart rate', yaxis: 'y2',
+      type: 'scatter', mode: 'lines', connectgaps: false,
+      line: { color: COLORS.text, width: 1.4 },
+      hovertemplate: '%{y:.0f} bpm<extra></extra>',
+    },
+    {
+      x: time, y: drawn(data.altitude), name: 'Elevation', yaxis: 'y3',
+      type: 'scatter', mode: 'lines', fill: 'tozeroy', connectgaps: false,
+      line: { color: COLORS.muted, width: 1 },
+      fillcolor: 'rgba(138,138,138,0.18)',
+      hovertemplate: '%{y:.0f} m<extra></extra>',
+    },
+  ];
+
+  Plotly.newPlot(el('chart'), traces, chartLayout(), {
+    displayModeBar: false, responsive: true,
+  });
+}
+
+function chartLayout() {
+  const paceRange = paceAxisRange(state.data.paceSmooth);
+  return {
+    // Three stacked panels sharing one x axis, so the intervals line up across all of
+    // them and only the bottom panel spends height on tick labels.
+    height: 400,
+    margin: { l: PLOT_MARGIN.left, r: PLOT_MARGIN.right, t: 8, b: 34 },
+    paper_bgcolor: COLORS.panel,
+    plot_bgcolor: COLORS.panel,
+    font: { family: FONT, color: COLORS.muted, size: 11 },
+    showlegend: false,
+    hovermode: 'x unified',
+    hoverlabel: { bgcolor: '#000', bordercolor: COLORS.grid, font: { color: COLORS.text } },
+    xaxis: {
+      ...axisDefaults('Time (min)'),
+      anchor: 'y3',
+      domain: [0, 1],
+    },
+    // Pace reads better upside down: faster is higher, as on Strava. The range comes
+    // from percentiles rather than the extremes — see paceAxisRange.
+    yaxis: {
+      ...axisDefaults(`Pace (min/km, ${SMOOTH_WINDOW_S}s avg)`),
+      domain: [0.56, 1],
+      ...(paceRange ? { range: paceRange, autorange: false } : { autorange: 'reversed' }),
+    },
+    yaxis2: { ...axisDefaults('HR (bpm)'), domain: [0.26, 0.50] },
+    yaxis3: { ...axisDefaults('Elev (m)'), domain: [0, 0.20] },
+    shapes: intervalShapes(),
+  };
+}
+
+function intervalBounds() {
+  const values = handles.map((handle) => Number(handle.value));
+  return [
+    [toMinutes(values[0]), toMinutes(values[1])],
+    [toMinutes(values[2]), toMinutes(values[3])],
+  ];
+}
+
+function intervalShapes() {
+  const fills = [COLORS.interval1, COLORS.interval2];
+  return intervalBounds().map(([x0, x1], i) => ({
+    type: 'rect', xref: 'x', yref: 'paper',
+    x0, x1, y0: 0, y1: 1,
+    fillcolor: fills[i], line: { width: 0 }, layer: 'below',
+  }));
+}
+
+// Basemaps. All of these are Plotly built-ins and need no API key — v4 dropped the
+// mapbox access token entirely, so every style it still offers is keyless.
+const BASEMAPS = {
+  dark: 'carto-darkmatter',
+  satellite: 'satellite',
+  street: 'open-street-map',
+};
+const DEFAULT_BASEMAP = 'dark';
+
+const STYLE_KEY = 'decoupling.basemap';
+
+function currentBasemap() {
+  const choice = el('mapstyle').value;
+  return BASEMAPS[choice] ? choice : DEFAULT_BASEMAP;
+}
+
+/**
+ * The map trace this Plotly build actually registers, with its layout key, or null.
+ *
+ * Bundles differ — 4.x `plotly-map` has `scattermap` on `layout.map`, 3.x `plotly-mapbox`
+ * only the deprecated `scattermapbox` on `layout.mapbox` — and asking for one that is not
+ * registered is silent: Plotly logs a warning, draws nothing, and resolves the promise
+ * anyway. So read it off the schema instead of trusting the script tag.
+ */
+function mapTraceType() {
+  try {
+    const traces = Plotly.PlotSchema.get().traces;
+    if (traces.scattermap) return { trace: 'scattermap', layoutKey: 'map' };
+    if (traces.scattermapbox) return { trace: 'scattermapbox', layoutKey: 'mapbox' };
+  } catch (error) {
+    // An old build with no PlotSchema: fall through to the outline.
+  }
+  return null;
+}
+
+async function drawMap() {
+  const container = el('map');
+  const note = el('mapnote');
+  if (!state.data.hasLatlng) {
+    mapMode = 'none';
+    container.style.display = 'none';
+    note.textContent = 'No GPS route was recorded for this session.';
+    return;
+  }
+  container.style.display = '';
+  note.textContent = '';
+
+  const lat = drawn(state.data.latitude);
+  const lng = drawn(state.data.longitude);
+  const centre = { lat: mean(lat), lon: mean(lng) };
+
+  const kind = mapTraceType();
+  if (!kind) return drawPlainRoute(lat, lng);
+
+  const line = (color, width) => ({
+    type: kind.trace, mode: 'lines', lat: [], lon: [],
+    line: { color, width }, hoverinfo: 'skip',
+  });
+  const ring = () => ({
+    type: kind.trace, mode: 'markers', lat: [], lon: [],
+    marker: { size: 34, color: COLORS.accent }, hoverinfo: 'skip',
+  });
+  const badge = () => ({
+    type: kind.trace, mode: 'markers+text', lat: [], lon: [], text: [],
+    marker: { size: 28, color: '#000' },
+    // Only fonts the basemap ships glyphs for will render here.
+    textfont: { family: 'Open Sans Bold', size: 16, color: COLORS.text },
+    textposition: 'middle center', hoverinfo: 'skip',
+  });
+
+  // Order matters: later traces draw on top. Each interval is an orange line over a
+  // wider black one, so it stays legible against any basemap and against the other
+  // interval where their routes overlap. Endpoint badges sit above everything.
+  const traces = [
+    { type: kind.trace, mode: 'lines', lat, lon: lng, name: 'Route',
+      line: { color: COLORS.text, width: 2.5 }, hoverinfo: 'skip' },
+    line('#000', 10),         // 1: interval 1 outline
+    line(COLORS.accent, 6),   // 2: interval 1
+    line('#000', 10),         // 3: interval 2 outline
+    line(COLORS.accent, 6),   // 4: interval 2
+    ring(), badge(),          // 5, 6: interval 1 endpoints
+    ring(), badge(),          // 7, 8: interval 2 endpoints
+  ];
+
+  const layout = {
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    paper_bgcolor: COLORS.panel,
+    showlegend: false,
+    [kind.layoutKey]: {
+      style: BASEMAPS[currentBasemap()],
+      center: centre,
+      zoom: fitZoom(lat, lng),
+    },
+  };
+
+  // Drawing the tiles still needs the tile server to be reachable. If anything throws,
+  // fall back to the route as a plain equal-aspect outline, which needs nothing beyond
+  // the chart code already loaded.
+  return Plotly.newPlot(container, traces, layout, { displayModeBar: false, responsive: true })
+    .then(() => { mapMode = 'tiles'; })
+    .catch(() => drawPlainRoute(lat, lng));
+}
+
+function mean(values) {
+  let sum = 0;
+  let count = 0;
+  for (const value of values) {
+    if (Number.isFinite(value)) { sum += value; count += 1; }
+  }
+  return count ? sum / count : 0;
+}
+
+function drawPlainRoute(lat, lng) {
+  mapMode = 'plain';
+  el('mapnote').textContent = 'Map tiles are unavailable — showing the route outline.';
+  const line = (color, width) => ({
+    type: 'scatter', mode: 'lines', x: [], y: [],
+    line: { color, width }, hoverinfo: 'skip',
+  });
+  const traces = [
+    { type: 'scatter', mode: 'lines', x: lng, y: lat,
+      line: { color: COLORS.text, width: 2 }, hoverinfo: 'skip' },
+    line('#000', 7),
+    line(COLORS.accent, 4),
+    line('#000', 7),
+    line(COLORS.accent, 4),
+    { type: 'scatter', mode: 'markers', x: [], y: [],
+      marker: { size: 26, color: COLORS.accent }, hoverinfo: 'skip' },
+    { type: 'scatter', mode: 'markers+text', x: [], y: [], text: [],
+      marker: { size: 21, color: '#000' },
+      textfont: { family: FONT, size: 13, color: COLORS.text },
+      textposition: 'middle center', hoverinfo: 'skip' },
+    { type: 'scatter', mode: 'markers', x: [], y: [],
+      marker: { size: 26, color: COLORS.accent }, hoverinfo: 'skip' },
+    { type: 'scatter', mode: 'markers+text', x: [], y: [], text: [],
+      marker: { size: 21, color: '#000' },
+      textfont: { family: FONT, size: 13, color: COLORS.text },
+      textposition: 'middle center', hoverinfo: 'skip' },
+  ];
+  const hidden = { visible: false, showgrid: false, zeroline: false };
+  return Plotly.newPlot(el('map'), traces, {
+    margin: { l: 0, r: 0, t: 0, b: 0 },
+    paper_bgcolor: COLORS.panel, plot_bgcolor: COLORS.panel,
+    showlegend: false,
+    xaxis: hidden,
+    // Equal aspect, and corrected for longitude lines converging away from the equator,
+    // so the route keeps its real shape rather than being stretched sideways.
+    yaxis: { ...hidden, scaleanchor: 'x', scaleratio: 1 / Math.cos((mean(lat) * Math.PI) / 180) },
+  }, { displayModeBar: false, responsive: true }).catch(() => { mapMode = 'none'; });
+}
+
+/** Web-mercator zoom at which the whole route fits the map box (MapLibre uses 512 px tiles). */
+function fitZoom(lat, lng, padding = 0.85) {
+  const box = el('map').getBoundingClientRect();
+  const width = box.width || 600;
+  const height = box.height || 300;
+  const lonSpan = Math.max(Math.max(...lng) - Math.min(...lng), 1e-6);
+  const mercator = (value) => Math.log(Math.tan(Math.PI / 4 + (value * Math.PI) / 360));
+  const ySpan = Math.max(Math.abs(mercator(Math.max(...lat)) - mercator(Math.min(...lat))), 1e-6);
+  const zoomLon = Math.log2((360 * width * padding) / (512 * lonSpan));
+  const zoomLat = Math.log2((2 * Math.PI * height * padding) / (512 * ySpan));
+  return Math.min(Math.max(Math.min(zoomLon, zoomLat), 1), 18);
+}
+
+// ---------------------------------------------------------------- update
+
+function update() {
+  if (!state) return;
+  const values = handles.map((handle) => Number(handle.value));
+  const bounds = values.map(toMinutes);
+  const interval1 = analyzeInterval(state.data, bounds[0], bounds[1]);
+  const interval2 = analyzeInterval(state.data, bounds[2], bounds[3]);
+
+  Plotly.relayout(el('chart'), { shapes: intervalShapes() });
+  updateMap(interval1, interval2);
+  renderStats(interval1, interval2, intervalsAreValid(...bounds));
+}
+
+/**
+ * Feed the interval traces: the two highlighted stretches, and a numbered badge at each
+ * end of each one. Trace order is fixed by drawMap / drawPlainRoute:
+ *   1+2 interval 1 (outline, line), 3+4 interval 2, 5+6 badges 1, 7+8 badges 2.
+ */
+function updateMap(interval1, interval2) {
+  if (mapMode === 'none' || !state.data.hasLatlng) return;
+  const { latitude, longitude } = state.data;
+  const tiles = mapMode === 'tiles';
+
+  /** The interval's path, thinned, plus the coordinates of its two endpoints. */
+  const shape = (interval) => {
+    if (!interval || interval.indices.length < 2) {
+      return { lat: [], lon: [], endLat: [], endLon: [] };
+    }
+    const { indices } = interval;
+    const step = Math.max(1, Math.ceil(indices.length / MAX_DRAWN_POINTS));
+    const lat = [];
+    const lon = [];
+    for (let k = 0; k < indices.length; k += step) {
+      lat.push(latitude[indices[k]]);
+      lon.push(longitude[indices[k]]);
+    }
+    const last = indices[indices.length - 1];
+    lat.push(latitude[last]);
+    lon.push(longitude[last]);
+    return {
+      lat,
+      lon,
+      endLat: [latitude[indices[0]], latitude[last]],
+      endLon: [longitude[indices[0]], longitude[last]],
+    };
+  };
+
+  const first = shape(interval1);
+  const second = shape(interval2);
+
+  // Both ends of an interval carry the same number, so one two-point trace does the job.
+  const paths = [first, first, second, second];  // 1, 2 = interval 1; 3, 4 = interval 2
+  const ends = [first, first, second, second];   // 5, 6 = badges 1; 7, 8 = badges 2
+  const lats = [...paths.map((p) => p.lat), ...ends.map((p) => p.endLat)];
+  const lons = [...paths.map((p) => p.lon), ...ends.map((p) => p.endLon)];
+
+  const restyle = tiles ? { lat: lats, lon: lons } : { x: lons, y: lats };
+  Plotly.restyle(el('map'), restyle, [1, 2, 3, 4, 5, 6, 7, 8]).catch(() => {});
+  // Only the badge traces carry text, and only once their endpoints exist.
+  Plotly.restyle(el('map'), {
+    text: [first.endLat.length ? ['1', '1'] : [], second.endLat.length ? ['2', '2'] : []],
+  }, [6, 8]).catch(() => {});
+}
+
+function metric(name, value, unit = '') {
+  const suffix = unit && value !== '—' ? `<span class="unit">${unit}</span>` : '';
+  return `<div class="metric"><div class="name">${name}</div>`
+    + `<div class="value">${value}${suffix}</div></div>`;
+}
+
+/** The eight metrics, laid out for a card. `horizontal` wraps them across the width. */
+function metrics(interval, horizontal = false) {
+  const body = [
+    metric('Time', formatDuration(interval.duration)),
+    metric('Distance', formatValue(interval.distance, 2), 'km'),
+    metric('Pace', formatPace(interval.pace), '/km'),
+    metric('Norm. graded pace', formatPace(interval.ngp), '/km'),
+    metric('Heart rate', formatValue(interval.hr, 0), 'bpm'),
+    metric('Cadence', formatValue(interval.cadence, 0), state.cadenceUnit),
+    metric('Elevation', formatValue(interval.altitude, 0), 'm'),
+    metric('Efficiency factor', formatValue(interval.ef, 4)),
+  ].join('');
+  return horizontal ? `<div class="metrics-row">${body}</div>` : body;
+}
+
+/**
+ * The whole session measured exactly as an interval is — same function, same mask, same
+ * normalization — so the interval numbers below can be read against it directly.
+ */
+function renderOverall(subtitle) {
+  const { data } = state;
+  const whole = analyzeInterval(data, data.timeMin[0], data.timeMin[data.n - 1]);
+  if (!whole) {
+    el('overall').innerHTML =
+      `<div class="stat-card full"><h3>FULL ACTIVITY</h3><div class="span">${subtitle}</div></div>`;
+    return;
+  }
+  el('overall').innerHTML = `
+    <div class="stat-card full">
+      <h3>FULL ACTIVITY</h3>
+      <div class="span">${subtitle}</div>
+      ${metrics(whole, true)}
+    </div>`;
+}
+
+function card(label, interval) {
+  if (!interval) {
+    return `<div class="stat-card"><h3>INTERVAL ${label}</h3>`
+      + '<div class="span">too few usable samples</div></div>';
+  }
+  return `<div class="stat-card">
+      <h3>INTERVAL ${label}</h3>
+      <div class="span">${formatDuration(interval.start)} – ${formatDuration(interval.end)}</div>
+      ${metrics(interval)}
+    </div>`;
+}
+
+function renderStats(interval1, interval2, valid) {
+  const metrics = comparisonMetrics(interval1, interval2);
+  const changes = [
+    ['Heart rate', metrics.hrChange],
+    ['Pace', metrics.paceChange],
+    ['Norm. graded pace', metrics.ngpChange],
+  ].map(([name, value]) =>
+    `<div class="change"><span class="name">${name}</span>`
+    + `<span class="value">${formatChange(value)}</span></div>`).join('');
+
+  const hint = !valid
+    ? 'Interval 1 must end before interval 2 starts.'
+    : Number.isFinite(metrics.decoupling)
+      ? 'Under 5% is the usual marker for an aerobically sound long run.'
+      : 'Needs heart rate in both intervals.';
+
+  el('stats').innerHTML = `
+    <div class="cards">${card('1', interval1)}${card('2', interval2)}</div>
+    <div class="panel"><h3>CHANGES</h3>${changes}</div>
+    <div class="panel headline">
+      <h3>AEROBIC DECOUPLING</h3>
+      <div class="big">${formatChange(metrics.decoupling)}</div>
+      <div class="label">${decouplingLabel(metrics.decoupling)}</div>
+      <p class="hint">${hint}</p>
+    </div>`;
+}
+
+// Basemap choice is a viewing preference, so it is remembered per browser and never
+// leaves it. Storage can throw (private windows, blocked site data), so it is optional.
+try {
+  const saved = localStorage.getItem(STYLE_KEY);
+  if (saved && BASEMAPS[saved]) el('mapstyle').value = saved;
+} catch (error) { /* no stored preference */ }
+
+el('mapstyle').addEventListener('change', async () => {
+  try {
+    localStorage.setItem(STYLE_KEY, currentBasemap());
+  } catch (error) { /* not worth failing the redraw over */ }
+  if (!state) return;
+  await drawMap();
+  update();
+});
+
+boot();
+</script>
+
+</body>
+</html>
