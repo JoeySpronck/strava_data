@@ -11,7 +11,12 @@ from strava_data.shapes import sport_marker_vertices
 plt.rc('axes', axisbelow=True)
 
 SHOW_PLOTS = True
-SAVE_FOLDER = "plots"
+# Anchored to the repo root (not the CWD) so notebooks in dev/ save to the same plots/ folder.
+SAVE_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plots")
+
+# Pace colorbar ticks (min/km): every 30 s below 7:00, whole minutes from 7:00 on, so the
+# slow tail doesn't crowd the bar with labels.
+PACE_TICKS = [m / 2 for m in range(2, 14)] + list(range(7, 21))
 
 # === GLOBAL PLOT STYLE SETTINGS ===
 COLORS = {
@@ -230,12 +235,21 @@ def _cap_flags(values, color_vmin, color_vmax):
 
 
 def _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=None, label_fontsize=None,
-                     tick_fontsize=None, cap_low=False, cap_high=False):
+                     tick_fontsize=None, cap_low=False, cap_high=False,
+                     color_ticks=None, color_invert=False):
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
-    cbar = plt.colorbar(sm, ax=ax, pad=0.02)
+    # Extra pad leaves room for the mirrored right-side y tick labels.
+    cbar = plt.colorbar(sm, ax=ax, pad=0.05)
     cbar.set_label(color_label, color=STYLE["text_color"], fontsize=label_fontsize)
     cbar.ax.yaxis.set_tick_params(color=STYLE["text_color"], labelsize=tick_fontsize)
+    if color_ticks is not None:
+        # Explicit tick values instead of matplotlib's auto ticks; keep only those inside the bar.
+        lo, hi = float(norm.vmin), float(norm.vmax)
+        cbar.set_ticks([t for t in color_ticks if lo <= t <= hi])
+    if color_invert:
+        # Flip so "better" sits on top when lower values are better (e.g. pace: slow → fast upward).
+        cbar.ax.invert_yaxis()
 
     if cap_low or cap_high:
         vmin, vmax = float(norm.vmin), float(norm.vmax)
@@ -277,6 +291,8 @@ def plot_weekly_stacked(
     color_vmin=None,
     color_vmax=None,
     hatch_col=None,
+    color_ticks=None,
+    color_invert=False,
     save_name=None,
 ):
     """
@@ -298,6 +314,8 @@ def plot_weekly_stacked(
         color_vmin / color_vmax (float | None): cap the color scale instead of using the
             data min/max, so extreme outliers don't skew the colormap. Values beyond the
             cap clamp to the end colors.
+        color_ticks (list[float] | None): explicit colorbar tick values (out-of-range ones are dropped).
+        color_invert (bool): flip the colorbar so low values sit on top.
         save_name (str | None): if set, saves the plot under SAVE_FOLDER.
     """
     fig, ax = setup_figure()
@@ -309,7 +327,8 @@ def plot_weekly_stacked(
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
     ax.xaxis.set_major_locator(mdates.MonthLocator())
     ax.tick_params(axis='x', colors=STYLE["text_color"], rotation=45)
-    ax.tick_params(axis='y', colors=STYLE["text_color"])
+    # Mirror y ticks/labels on the right so values stay readable when zoomed into recent weeks.
+    ax.tick_params(axis='y', colors=STYLE["text_color"], right=True, labelright=True)
     ax.set_xlabel('Month', color=STYLE["text_color"], labelpad=8)
     ax.set_ylabel(stack_label, color=STYLE["text_color"], labelpad=8)
 
@@ -339,7 +358,8 @@ def plot_weekly_stacked(
 
     cap_low, cap_high = _cap_flags(df[color_col], color_vmin, color_vmax)
     _attach_colorbar(ax, cmap, norm, color_label, color_format_fn=color_format_fn,
-                     cap_low=cap_low, cap_high=cap_high)
+                     cap_low=cap_low, cap_high=cap_high,
+                     color_ticks=color_ticks, color_invert=color_invert)
 
     plt.tight_layout()
     if save_name:
@@ -368,7 +388,8 @@ def plot_weekly_stacked_multi(
         panels (list[dict]): one dict per panel. Required keys:
             df, stack_col, color_col, stack_label, color_label, title.
           Optional keys:
-            color_seq, norm_center, color_format_fn, color_vmin, color_vmax.
+            color_seq, norm_center, color_format_fn, color_vmin, color_vmax,
+            color_ticks, color_invert.
         panel_height (float): height in inches per panel (default 1.6).
         width (float | None): figure width; defaults to STYLE['width_large'].
         suptitle (str | None): figure-level title above all panels.
@@ -416,6 +437,8 @@ def plot_weekly_stacked_multi(
                 label_fontsize=STYLE["small_fontsize"],
                 tick_fontsize=STYLE["small_fontsize"],
                 cap_low=cap_low, cap_high=cap_high,
+                color_ticks=panel.get('color_ticks'),
+                color_invert=panel.get('color_invert', False),
             )
             # Legend marking the hatched series (e.g. trail runs) on panels that use it.
             if hatch_col is not None and df[hatch_col].any():
@@ -431,7 +454,11 @@ def plot_weekly_stacked_multi(
                 plt.setp(legend.get_texts(), color=STYLE["text_color"])
 
         ax.set_ylabel(panel['stack_label'], color=STYLE["text_color"], fontsize=STYLE["small_fontsize"], labelpad=6)
-        ax.tick_params(axis='y', colors=STYLE["text_color"], labelsize=STYLE["small_fontsize"])
+        # Mirror y ticks/labels on the right so values stay readable when zoomed into recent weeks.
+        ax.tick_params(axis='y', colors=STYLE["text_color"], labelsize=STYLE["small_fontsize"],
+                       right=True, labelright=True)
+        # Upper panels only show x tick marks (shared x); color them too so they aren't default white.
+        ax.tick_params(axis='x', colors=STYLE["text_color"])
         ax.set_title(
             panel['title'],
             color=STYLE["highlight_color"],
@@ -509,6 +536,8 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
             color_seq=STYLE["color_seq_pace"],
             norm_center=df_runs['pace_min_per_km'].mean(),
             color_format_fn=lambda x, pos: f"{int(x)}:{int((x - int(x)) * 60):02d}",
+            color_ticks=PACE_TICKS,
+            color_invert=True,    # slow at the bottom → fast on top
             hatch_col='is_trail',
             save_name=save_name,
         )

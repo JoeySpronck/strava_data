@@ -224,12 +224,15 @@ if len(df_strength) > 0:
         # Volume rate (kg lifted per minute) is the strength analogue of run/cycle avg speed:
         # an effort-density metric, so colouring stays consistent with the other sports.
         df_strength['volume_per_min'] = df_strength['volume_kg'] / df_strength['time_min']
+        # Bar heights in thousands of kg keep the y tick labels short; volume_kg stays raw
+        # because the calendar sizes and the kg/min colour scale are defined in kg.
+        df_strength['volume_k'] = df_strength['volume_kg'] / 1000
 
         vis.plot_weekly_stacked(
             df_strength,
-            stack_col='volume_kg',
+            stack_col='volume_k',
             color_col='volume_per_min',
-            stack_label='Volume (kg)',
+            stack_label='Volume (×1000 kg)',
             color_label='Volume rate (kg/min)',
             title='Weekly Strength Volume  |  Volume Rate',
             color_vmax=STRENGTH_COLOR_MAX,
@@ -262,8 +265,9 @@ if len(df_rides) > 0:
 # --------------------------
 # ALL-SPORTS OVERVIEW
 # --------------------------
+OVERVIEW_PACE_MAX = 8.0  # min/km; slowest pace on the overview colorbar
 df_runs_overview = df_runs.copy()
-df_runs_overview['avg_speed_kmh'] = df_runs_overview['average_speed'] * 3.6
+df_runs_overview['pace_min_per_km'] = (1000 / df_runs_overview['average_speed']) / 60
 # Trail runs share the legacy type 'Run'; sport_type tells them apart so they can be hatched.
 df_runs_overview['is_trail'] = df_runs_overview['sport_type'].astype(str).str.contains('Trail', case=False, na=False)
 
@@ -271,30 +275,39 @@ overview_panels = []
 if len(df_runs_overview) > 0:
     overview_panels.append(dict(
         df=df_runs_overview,
-        stack_col='distance_km', color_col='avg_speed_kmh',
-        stack_label='Run km', color_label='km/h',
-        title='Running  |  Avg Speed',
+        stack_col='distance_km', color_col='pace_min_per_km',
+        stack_label='Distance (km)', color_label='Pace (min/km)',
+        title='Running  |  Pace',
+        # Same pace styling as the individual weekly pace plot (fast = orange, centered on mean pace).
+        color_seq=vis.STYLE["color_seq_pace"],
+        norm_center=df_runs_overview['pace_min_per_km'].mean(),
+        color_format_fn=lambda x, pos: f"{int(x)}:{int((x - int(x)) * 60):02d}",
+        color_ticks=vis.PACE_TICKS,  # 30 s steps below 7:00, whole minutes from 7:00 on
+        color_invert=True,    # slow at the bottom → fast on top
+        # The overview colorbar is short, so a few very slow runs squeeze the slow half and the
+        # 6:30/7:00 labels collide; clamp anything slower to the "≥" end of the bar.
+        color_vmax=OVERVIEW_PACE_MAX,
         hatch_col='is_trail',
     ))
 if len(df_rides) > 0:
     overview_panels.append(dict(
         df=df_rides,
         stack_col='distance_km', color_col='avg_speed_kmh',
-        stack_label='Ride km', color_label='km/h',
+        stack_label='Distance (km)', color_label='Avg speed (km/h)',
         title='Cycling  |  Avg Speed',
     ))
 if len(df_hikes) > 0:
     overview_panels.append(dict(
         df=df_hikes,
         stack_col='distance_km', color_col='weight_kg',
-        stack_label='Hike km', color_label='kg',
+        stack_label='Distance (km)', color_label='Carried weight (kg)',
         title='Hiking  |  Carried Weight',
     ))
 if len(df_strength) > 0:
     overview_panels.append(dict(
         df=df_strength,
-        stack_col='volume_kg', color_col='volume_per_min',
-        stack_label='Volume kg', color_label='kg/min',
+        stack_col='volume_k', color_col='volume_per_min',
+        stack_label='Volume (×1000 kg)', color_label='Volume rate (kg/min)',
         title='Strength  |  Volume Rate',
         color_vmax=STRENGTH_COLOR_MAX,
     ))
@@ -302,7 +315,7 @@ if len(df_strength) > 0:
 if overview_panels:
     vis.plot_weekly_stacked_multi(
         overview_panels,
-        panel_height=1.5,
+        panel_height=1.85,  # ~1.2x the old 1.5 so the overview isn't squashed on the web / .md pages
         save_name='weekly_overview_all_sports.png',
     )
 
