@@ -37,11 +37,15 @@ A few words in an activity's title, description or private note change how it's 
   running; the hike part shows up in the hiking plots with 0 kg carried. Without cadence,
   the slowest `p%` of distance counts as hiked; without any stream, the distance is split
   by `p`. A note without a percentage ("walked the uphills") changes nothing.
-- **`multisport`** (or `multi sport` / `multi-sport`) on two or more activities on the same day links them.
+- **`multisport`** (or `multi sport` / `multi-sport`) on two or more activities on the same day
+  links them, whatever the time between them.
 - **`<n>kg`** on a hike is the carried weight; **`<n>kg volume`** on a strength session its volume.
 
-Linked activities (split runs and `multisport` days) get a black marker on their bar in
-every weekly stacked plot: ● for the first linked group in a week, then ▲, ■ and ✕.
+Same-day activities also link without a tag when one starts at most 60 minutes after the
+previous one ends. Linked activities get the letter of the other sport (R run, T trail run,
+H hike, S strength, B bike) on their bar in every weekly stacked plot, with a small arrow
+above it: → that activity came after, ← it came before, ↔ the other part of a split run.
+In a chain of three or more, the middle activities point to the next one.
 The logic lives in `strava_data/hike_split.py`; `python tests/test_hike_split.py` tests it
 on synthetic streams.
 

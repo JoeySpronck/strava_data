@@ -152,22 +152,48 @@ def test_split_activities_and_markers():
 
     out = hs.assign_link_markers(out)
     m = dict(zip(zip(out["id"], out["type"]), out["link_marker"]))
-    assert m[(1, "Run")] == m[(1, "Hike")] == "o"   # first group of that week
-    assert m[(3, "Ride")] == m[(4, "Run")] == "^"   # second group, same week
+    assert (m[(1, "Run")], m[(1, "Hike")]) == ("<H>", "<T>")   # split: both ways
+    # 65 min apart, over the gap limit, but both tagged multisport.
+    assert (m[(3, "Ride")], m[(4, "Run")]) == ("R>", "<B")
     assert m[(5, "Ride")] is None and m[(2, "Run")] is None
-    assert m[(6, "Run")] == m[(6, "Hike")] == "o"   # new week starts over
+    assert (m[(6, "Run")], m[(6, "Hike")]) == ("<H>", "<T>")
+
+
+def test_gap_links_and_chains():
+    def act(aid, typ, start, minutes, sport_type=None, note=None):
+        t = pd.Timestamp(f"2025-06-04 {start}", tz="UTC")
+        return dict(id=aid, type=typ, sport_type=sport_type or typ, name="x", description=None,
+                    private_note=note, start_date=t, start_date_local=t.tz_localize(None),
+                    elapsed_time=minutes * 60.0, moving_time=minutes * 60.0)
+    df = pd.DataFrame([
+        act(1, "Ride", "07:00", 60),                     # ends 08:00
+        act(2, "Run", "08:30", 30),                      # 30 min gap -> linked
+        act(3, "Hike", "09:30", 60),                     # 60 min gap -> linked (limit)
+        act(4, "Swim", "10:40", 20),                     # no letter: ignored
+        act(5, "WeightTraining", "12:31", 10),           # 61 min after the hike -> not linked
+        act(6, "Run", "18:00", 30, sport_type="TrailRun"),
+    ])
+    m = dict(zip(hs.assign_link_markers(df)["id"], hs.assign_link_markers(df)["link_marker"]))
+    assert (m[1], m[2], m[3]) == ("R>", "H>", "<R")   # middle one points to the next
+    assert m[4] is None and m[5] is None and m[6] is None
+    # A trail run gets T; strength before it within the gap links.
+    df.loc[df["id"] == 5, "start_date"] = pd.Timestamp("2025-06-04 17:30", tz="UTC")
+    m = dict(zip(hs.assign_link_markers(df)["id"], hs.assign_link_markers(df)["link_marker"]))
+    assert (m[5], m[6]) == ("T>", "<S")
 
 
 def test_marker_placement():
-    """Marker sits mid-bar, half a bar width below the segment top; centred on short bars."""
+    """Glyph sits mid-bar, its top a margin below the segment top; centred on short bars."""
     import matplotlib.pyplot as plt
     week = pd.Timestamp("2025-06-08")
     df = pd.DataFrame({"week": [week, week, week + pd.Timedelta(days=7)],
-                       "km": [10.0, 0.3, 8.0], "c": [1.0, 2.0, 3.0],
-                       "link_marker": ["o", "^", None]})
+                       "km": [30.0, 0.3, 8.0], "c": [1.0, 2.0, 3.0],
+                       "link_marker": ["H>", "<R>", None]})
     fig, ax = plt.subplots(figsize=(8, 4))
     _, _, segments = vis._draw_weekly_stacked(ax, df, "km", "c")
     fig.tight_layout()
+    # A year of weeks on the axis, so bars are as narrow as in the real plots.
+    ax.set_xlim(vis.mdates.date2num(week) - 180, vis.mdates.date2num(week) + 180)
     vis._draw_link_markers(ax, segments)
     fig.canvas.draw()
     marks = [p for p in ax.patches if p.get_gid() == "link_marker"]
@@ -178,11 +204,20 @@ def test_marker_placement():
     # Each marker's path is centred on (0, 0), so its transform maps that to the centre.
     x_px, y_px = marks[0].get_transform().transform((0, 0))
     assert abs(x_px - x0) < 1e-6
-    top_px = to_px((0, 10.0))[1]
-    assert abs((top_px - y_px) - 0.5 * bar_px) < 0.5
+    top_px = to_px((0, 30.0))[1]
+    glyph_px = vis.STYLE["link_marker_size"] * bar_px
+    expected = vis.STYLE["link_marker_top_margin"] * bar_px + glyph_px / 2
+    assert abs((top_px - y_px) - expected) < 0.5
     y2_px = marks[1].get_transform().transform((0, 0))[1]
-    assert abs(y2_px - to_px((0, 10.15))[1]) < 1e-6   # 0.3 km segment: vertical centre
+    assert abs(y2_px - to_px((0, 30.15))[1]) < 1e-6   # 0.3 km segment: vertical centre
     assert not marks[0].get_snap()
+    arrows = [p for p in ax.patches if p.get_gid() == "link_arrow"]
+    assert len(arrows) == 2
+    # One- and two-headed arrows are equally tall, and sit above the letter.
+    heights = [a.get_path().get_extents().height for a in arrows]
+    assert abs(heights[0] - heights[1]) < 1e-9
+    for mark, arrow in zip(marks, arrows):
+        assert arrow.get_path().get_extents().y0 > mark.get_path().get_extents().y1
     plt.close(fig)
 
 

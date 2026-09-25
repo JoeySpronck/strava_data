@@ -4,7 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
-from matplotlib.markers import MarkerStyle
+from matplotlib.path import Path as MplPath
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Circle, FancyBboxPatch, PathPatch, Polygon as MplPolygon
 from matplotlib.textpath import TextPath
@@ -58,12 +58,13 @@ STYLE = {
     # scales HSV brightness: 1.0 = same color, lower = darker. Set to None to use the fixed
     # trail_hash_color for all hatched bars instead.
     "trail_hatch_darken": 0.7,
-    # Linked activities (a run split into run + hike, or same-day "multisport" activities)
-    # get a black marker on their segment: horizontally centred, half a bar width below the
-    # segment top (vertically centred on segments too short for that). The symbol per
-    # week (dot, triangle, square, x) comes from strava_data.hike_split.LINK_MARKERS.
+    # Linked activities (see strava_data.hike_split.assign_link_markers) get the letter of the
+    # linked sport with a small arrow above it on their segment: → it follows, ← it came
+    # before, ↔ the other part of a split run. Horizontally centred, its top a margin below
+    # the segment top (vertically centred on segments too short for that).
     "link_marker_color": COLORS["background"],
-    "link_marker_size": 0.6,  # marker diameter as a fraction of the bar width (max ~0.9 to stay inside)
+    "link_marker_size": 1.3,  # letter + arrow height as a fraction of the bar width
+    "link_marker_top_margin": 0.15,  # segment top to glyph top, as a fraction of the bar width
     # Event panels (e.g. injuries) in plot_weekly_stacked_multi: an orange circle with a white
     # abbreviation on a thin horizontal line, one per event start date.
     # Figures with an event panel lay rows out in inches instead of tight_layout's uniform gap,
@@ -267,10 +268,51 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
     return cmap, norm, segments
 
 
-def _draw_link_markers(ax, segments):
-    """Black markers on linked segments. Call after the layout (limits, tight_layout) is final.
+# Link glyph geometry, in units of the letter height. The arrow is one filled shape: a
+# shaft with large solid triangular heads, so it reads at small sizes. One- and
+# two-headed arrows share length, head size and height.
+LINK_GLYPH = {
+    "arrow_gap": 0.22,         # letter top to the bottom of the arrowheads
+    "arrow_half_width": 0.62,
+    "head_length": 0.48,       # tip to where the shaft meets the head
+    "head_sweep": 0,           # >0 sweeps the barbs back (➤); 0 = plain triangle
+    "head_half_height": 0.36,
+    "shaft_half_height": 0.09,
+}
+LINK_GLYPH["height"] = 1 + LINK_GLYPH["arrow_gap"] + 2 * LINK_GLYPH["head_half_height"]
 
-    "Half a bar width below the top" mixes the x scale (bar width, in days) with the y scale
+
+def _link_glyph(marker):
+    """(letter path, arrow path) for a link marker like "H>", "<S" or "<H>".
+
+    Both are centred on (0, 0) as one glyph, in units of the letter height.
+    """
+    g = LINK_GLYPH
+    letter = marker.strip("<>")
+    text = TextPath((0, 0), letter, size=1, prop=FontProperties(weight='bold'))
+    ext = text.get_extents()
+    mid_y = g["height"] / 2
+    letter_path = text.transformed(
+        Affine2D().translate(-(ext.x0 + ext.x1) / 2, -ext.y0).scale(1 / ext.height)
+        .translate(0, -mid_y))
+    w, hl, hh, sh = (g["arrow_half_width"], g["head_length"], g["head_half_height"],
+                     g["shaft_half_height"])
+    y = 1 + g["arrow_gap"] + hh - mid_y  # arrow centre line
+    left, right = marker.startswith("<"), marker.endswith(">")
+    lo, hi = -w + (hl if left else 0), w - (hl if right else 0)  # shaft ends
+    sw = g["head_sweep"]
+    # Outline, counter-clockwise: bottom of the shaft, right end, top, left end.
+    verts = [(lo, y - sh), (hi, y - sh)]
+    verts += [(hi - sw, y - hh), (w, y), (hi - sw, y + hh)] if right else []
+    verts += [(hi, y + sh), (lo, y + sh)]
+    verts += [(lo + sw, y + hh), (-w, y), (lo + sw, y - hh)] if left else []
+    return letter_path, MplPath.make_compound_path(MplPath(verts + [verts[0]], closed=True))
+
+
+def _draw_link_markers(ax, segments):
+    """Link letters + arrows on linked segments. Call after the layout (limits, tight_layout) is final.
+
+    "A margin below the top" mixes the x scale (bar width, in days) with the y scale
     (km), so the offset is worked out in display pixels from the axes' current transform.
 
     Markers are patches sized in points, not ``scatter``: Agg rounds scatter markers to
@@ -289,23 +331,25 @@ def _draw_link_markers(ax, segments):
         x_px, top_px = to_px((x, bottom + height))
         bar_px = abs(to_px((x + STYLE["bar_width"], 0))[0] - to_px((x, 0))[0])
         bottom_px = to_px((x, bottom))[1]
-        if top_px - bottom_px >= bar_px:
-            y = to_data((x_px, top_px - 0.5 * bar_px))[1]
+        glyph_px = STYLE["link_marker_size"] * bar_px
+        margin_px = STYLE["link_marker_top_margin"] * bar_px
+        if top_px - bottom_px >= glyph_px + 2 * margin_px:
+            y = to_data((x_px, top_px - margin_px - glyph_px / 2))[1]
         else:
             y = bottom + height / 2
-        size_pt = STYLE["link_marker_size"] * bar_px * 72 / fig.dpi
-        style = MarkerStyle(marker)
-        # Unit marker path -> points -> inches -> pixels (follows savefig's dpi), then
-        # shifted to (x, y) in data coordinates.
-        transform = (style.get_transform() + Affine2D().scale(size_pt / 72)
-                     + fig.dpi_scale_trans + ScaledTranslation(x, y, ax.transData))
-        # 'x' is drawn with lines only, so it needs a stroke; the filled shapes don't.
-        filled = style.is_filled()
+        letter_path, arrow_path = _link_glyph(marker)
+        # Glyph units (letter height 1) -> points -> inches -> pixels (follows savefig's
+        # dpi), then shifted to (x, y) in data coordinates.
+        size_pt = STYLE["link_marker_size"] * bar_px * 72 / fig.dpi / LINK_GLYPH["height"]
+        transform = (Affine2D().scale(size_pt / 72) + fig.dpi_scale_trans
+                     + ScaledTranslation(x, y, ax.transData))
         ax.add_patch(PathPatch(
-            style.get_path(), transform=transform, snap=False, zorder=4, gid='link_marker',
-            facecolor=STYLE["link_marker_color"] if filled else 'none',
-            edgecolor='none' if filled else STYLE["link_marker_color"],
-            linewidth=0 if filled else max(size_pt / 5, 0.8),
+            letter_path, transform=transform, snap=False, zorder=4, gid='link_marker',
+            facecolor=STYLE["link_marker_color"], edgecolor='none', linewidth=0,
+        ))
+        ax.add_patch(PathPatch(
+            arrow_path, transform=transform, snap=False, zorder=4, gid='link_arrow',
+            facecolor=STYLE["link_marker_color"], edgecolor='none', linewidth=0,
         ))
     # Adding patches must not nudge the autoscaled limits the offsets were computed from.
     ax.set_xlim(xlim)

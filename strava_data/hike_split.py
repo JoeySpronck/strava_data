@@ -17,9 +17,12 @@ no stream at all -> the distance is split by p and the run keeps the original pa
 
 Only the explicit percentage triggers a split, so notes like "walked the uphills" don't.
 
-Linked activities (a split pair, or activities on one day that all mention ``multisport``)
-get a ``link_marker`` so the stacked weekly plots can mark them with a black symbol:
-the first linked group in a week gets a dot, the next a triangle, then square, then x.
+Linked activities get a ``link_marker`` that the stacked weekly plots draw as the letter
+of the *other* sport with a small arrow above it. Same-day activities link when one starts
+at most ``LINK_MAX_GAP_MIN`` after the previous one ends, or when both mention
+``multisport`` (any gap). The first activity of a chain points to the next one ("H>", a
+hike follows), the last back to the previous one ("<S", strength came before); middle
+activities point to the next. The two parts of a split run point both ways ("<H>").
 """
 import re
 
@@ -42,7 +45,10 @@ MIN_SEGMENT_S = 30                # run/hike stretches shorter than this merge i
 MIN_VALID_CADENCE_FRACTION = 0.5  # below this share of valid samples, fall back to pace
 SANITY_TOLERANCE = 0.15           # warn if the cadence split is >15 %-points off the tag
 
-LINK_MARKERS = ["o", "^", "s", "x"]  # per week: 1st linked group, 2nd, 3rd, 4th+
+# Letters of the linked sport, as in the calendar plot's SPORT_LETTERS. Activities of
+# other sports (e.g. swims, not plotted yet) never link.
+LINK_LETTERS = {"Run": "R", "Hike": "H", "WeightTraining": "S", "Ride": "B"}
+LINK_MAX_GAP_MIN = 60  # next start at most this long after the previous end -> linked
 
 
 def parse_hike_percent(*texts):
@@ -278,33 +284,78 @@ def _local_day(row):
     return pd.Timestamp(d).date()
 
 
-def assign_link_markers(df):
-    """Add ``link_marker``: a matplotlib marker for linked activities, None otherwise.
+def _link_letter(row):
+    if row.get("sport_type") == "TrailRun":
+        return "T"
+    return LINK_LETTERS.get(row.get("type"))
 
-    A group is a split pair (same id) or all activities on one local day that mention
-    ``multisport``. Groups are numbered per week by their first start, so the first
-    linked group of a week gets LINK_MARKERS[0], the second LINK_MARKERS[1], and so on.
+
+def assign_link_markers(df):
+    """Add ``link_marker``: e.g. "H>" / "<S" / "<H>" for linked activities, None otherwise.
+
+    The letter is the sport of the linked activity; ">" means it comes after this one,
+    "<" before, both for the other part of a split run. Split rows (same id) count as one
+    activity when linking to others; that activity takes the letter of its first row.
     """
     df = df.copy()
-    keys = pd.Series([None] * len(df), index=df.index, dtype=object)
-    for idx, r in df.iterrows():
-        if r.get("split_part") in ("run", "hike"):
-            keys[idx] = f"split:{r['id']}"
-        elif has_multisport_tag(r.get("name"), r.get("description"), r.get("private_note")):
-            keys[idx] = f"multisport:{_local_day(r)}"
-    # A lone "multisport" activity has nothing to link to.
-    counts = keys.value_counts()
-    keys = keys.where(keys.map(counts).fillna(0) > 1)
-
     df["link_marker"] = None
-    linked = df[keys.notna()]
-    if len(linked) == 0:
+    letters = df.apply(_link_letter, axis=1)
+    rows = df[letters.notna()]
+    if len(rows) == 0:
         return df
-    starts = pd.to_datetime(linked["start_date"], utc=True)
-    groups = pd.DataFrame({"key": keys[linked.index], "start": starts})
-    first = groups.groupby("key")["start"].min().sort_values()
-    week = first.dt.tz_convert(None).dt.to_period("W-SUN")
-    rank = first.groupby(week).cumcount()
-    marker_of = {k: LINK_MARKERS[min(i, len(LINK_MARKERS) - 1)] for k, i in rank.items()}
-    df.loc[linked.index, "link_marker"] = keys[linked.index].map(marker_of)
+
+    units = []  # one per activity id: start, end, local day, letter, multisport tag
+    for aid, g in rows.groupby("id", sort=False):
+        first = g.iloc[0]
+        start = pd.Timestamp(first["start_date"])
+        elapsed = sum(float(e) if pd.notna(e) else float(m or 0)
+                      for e, m in zip(g["elapsed_time"], g["moving_time"]))
+        tagged = any(has_multisport_tag(r.get("name"), r.get("description"), r.get("private_note"))
+                     for _, r in g.iterrows())
+        units.append(dict(id=aid, start=start, end=start + pd.Timedelta(seconds=elapsed),
+                          day=_local_day(first), letter=letters[g.index[0]], tagged=tagged))
+    units.sort(key=lambda u: u["start"])
+
+    # Union-find over activities: consecutive same-day ones within the gap, and
+    # consecutive multisport-tagged ones on the same day, whatever the gap.
+    parent = {u["id"]: u["id"] for u in units}
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    max_gap = pd.Timedelta(minutes=LINK_MAX_GAP_MIN)
+    by_day = {}
+    for u in units:
+        by_day.setdefault(u["day"], []).append(u)
+    for day_units in by_day.values():
+        pairs = list(zip(day_units, day_units[1:]))
+        tagged = [u for u in day_units if u["tagged"]]
+        pairs += list(zip(tagged, tagged[1:]))
+        for a, b in pairs:
+            if b["start"] - a["end"] <= max_gap or (a["tagged"] and b["tagged"]):
+                parent[find(a["id"])] = find(b["id"])
+
+    chains = {}
+    for u in units:  # already in start order
+        chains.setdefault(find(u["id"]), []).append(u)
+    marker_of = {}
+    for chain in chains.values():
+        for i, u in enumerate(chain):
+            if len(chain) < 2:
+                break
+            marker_of[u["id"]] = (f"{chain[i + 1]['letter']}>" if i + 1 < len(chain)
+                                  else f"<{chain[i - 1]['letter']}")
+    df.loc[rows.index, "link_marker"] = rows["id"].map(marker_of)
+
+    # The two parts of a split run point at each other, both ways.
+    if "split_part" in rows:
+        for _, g in rows[rows["split_part"].isin(["run", "hike"])].groupby("id"):
+            if len(g) == 2:
+                a, b = g.index
+                df.loc[a, "link_marker"] = f"<{letters[b]}>"
+                df.loc[b, "link_marker"] = f"<{letters[a]}>"
+    df["link_marker"] = df["link_marker"].astype(object).where(df["link_marker"].notna(), None)
     return df
