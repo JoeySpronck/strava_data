@@ -72,6 +72,23 @@ POST edit 3 (private→followers) ─►  alarm = now + 3 min   (reset)
 Change the wait by editing `DEBOUNCE_MS` near the top of `worker.js`, then
 `wrangler deploy`.
 
+**Which activities changed.** Each event also carries the activity id
+(`object_id`). The Durable Object remembers every id it saw in the last 24 hours, and
+each dispatch passes all of them as the workflow's `refresh_ids` input, so
+`update_plots.py` refetches those activities' descriptions, private notes and streams
+instead of reusing its `.cache/` copy. `refresh_ids` must be declared in
+`update_plots.yml` (it is), or GitHub rejects the dispatch with a 422.
+
+Why 24 hours rather than only the new ids: a run can take ~90 minutes (it waits out
+Strava's rate limit), and GitHub keeps only one *queued* run, so a newer dispatch
+cancels an older queued one. Re-sending recent ids means nothing is lost that way, or
+when a dispatch fails. Change the window with `ID_MEMORY_MS` in `worker.js`.
+
+**Forcing a refresh by hand.** Strava only guarantees an event for title, type and
+privacy edits; a private-note-only edit may not send one. After editing a private note
+(e.g. adding `50% hike` to an old run), tweak the title too, and that activity is
+refetched a few minutes later.
+
 > **Free tier.** The Durable Object uses the **SQLite** storage backend
 > (declared via `new_sqlite_classes` in `wrangler.toml`), which is the kind
 > available on the Workers Free plan — so this costs nothing.

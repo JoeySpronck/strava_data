@@ -4,7 +4,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
-from matplotlib.patches import Circle, FancyBboxPatch, Polygon as MplPolygon
+from matplotlib.markers import MarkerStyle
+from matplotlib.patches import Circle, FancyBboxPatch, PathPatch, Polygon as MplPolygon
+from matplotlib.transforms import Affine2D, ScaledTranslation
 from sklearn.preprocessing import StandardScaler
 import numpy as np
 from strava_data.shapes import sport_marker_vertices
@@ -54,6 +56,12 @@ STYLE = {
     # scales HSV brightness: 1.0 = same color, lower = darker. Set to None to use the fixed
     # trail_hash_color for all hatched bars instead.
     "trail_hatch_darken": 0.7,
+    # Linked activities (a run split into run + hike, or same-day "multisport" activities)
+    # get a black marker on their segment: horizontally centred, half a bar width below the
+    # segment top (vertically centred on segments too short for that). The symbol per
+    # week (dot, triangle, square, x) comes from strava_data.hike_split.LINK_MARKERS.
+    "link_marker_color": COLORS["background"],
+    "link_marker_size": 0.6,  # marker diameter as a fraction of the bar width (max ~0.9 to stay inside)
     "width_small": 5,
     "width_large": 12,
     "height_large": 6,
@@ -156,6 +164,9 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
 
     hatch_col: optional name of a boolean column; rows that are True get diagonal hatching
     overlaid on their segment (used to mark trail runs apart from road runs).
+
+    Returns (cmap, norm, segments): segments lists (week, bottom, height, marker) for every
+    row with a ``link_marker``, for `_draw_link_markers` to place once the layout is final.
     """
     # Hatch lines inherit the patch edgecolor; keep them thin so they read as texture, not noise.
     plt.rcParams['hatch.linewidth'] = STYLE["trail_hatch_linewidth"]
@@ -172,10 +183,14 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
 
+    segments = []
+    has_links = 'link_marker' in df.columns
     for week, group in df.groupby('week', sort=True):
         bottom = 0
         for _, row in group.iterrows():
             height = row[stack_col]
+            if has_links and isinstance(row['link_marker'], str):
+                segments.append((week, bottom, height, row['link_marker']))
             fill = cmap(norm(values.loc[row.name]))
             is_trail = bool(hatch_col and row[hatch_col])
             # Base bar: just the fill, no border yet (the black border is drawn last so it
@@ -185,6 +200,7 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
                 height,
                 bottom=bottom,
                 width=STYLE["bar_width"],
+                snap=False,  # see _draw_link_markers: keeps markers centred to the pixel
                 color=fill,
                 linewidth=0,
                 zorder=1,
@@ -201,6 +217,7 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
                     height,
                     bottom=bottom,
                     width=STYLE["bar_width"],
+                snap=False,  # see _draw_link_markers: keeps markers centred to the pixel
                     facecolor='none',
                     linewidth=0,
                     edgecolor=hatch_color,
@@ -214,13 +231,59 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
                 height,
                 bottom=bottom,
                 width=STYLE["bar_width"],
+                snap=False,  # see _draw_link_markers: keeps markers centred to the pixel
                 facecolor='none',
                 linewidth=STYLE["bar_linewidth"],
                 edgecolor=STYLE["bar_edge_color"],
                 zorder=3,
             )
             bottom += height
-    return cmap, norm
+    return cmap, norm, segments
+
+
+def _draw_link_markers(ax, segments):
+    """Black markers on linked segments. Call after the layout (limits, tight_layout) is final.
+
+    "Half a bar width below the top" mixes the x scale (bar width, in days) with the y scale
+    (km), so the offset is worked out in display pixels from the axes' current transform.
+
+    Markers are patches sized in points, not ``scatter``: Agg rounds scatter markers to
+    whole pixels while bar edges snap to the pixel grid differently, which left small
+    markers visibly up to half a pixel off-centre. Unsnapped patches on unsnapped bars
+    (``snap=False`` in `_draw_weekly_stacked`) land on the exact sub-pixel centre.
+    """
+    if not segments:
+        return
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    to_px = ax.transData.transform
+    to_data = ax.transData.inverted().transform
+    fig = ax.figure
+    for week, bottom, height, marker in segments:
+        x = mdates.date2num(week)
+        x_px, top_px = to_px((x, bottom + height))
+        bar_px = abs(to_px((x + STYLE["bar_width"], 0))[0] - to_px((x, 0))[0])
+        bottom_px = to_px((x, bottom))[1]
+        if top_px - bottom_px >= bar_px:
+            y = to_data((x_px, top_px - 0.5 * bar_px))[1]
+        else:
+            y = bottom + height / 2
+        size_pt = STYLE["link_marker_size"] * bar_px * 72 / fig.dpi
+        style = MarkerStyle(marker)
+        # Unit marker path -> points -> inches -> pixels (follows savefig's dpi), then
+        # shifted to (x, y) in data coordinates.
+        transform = (style.get_transform() + Affine2D().scale(size_pt / 72)
+                     + fig.dpi_scale_trans + ScaledTranslation(x, y, ax.transData))
+        # 'x' is drawn with lines only, so it needs a stroke; the filled shapes don't.
+        filled = style.is_filled()
+        ax.add_patch(PathPatch(
+            style.get_path(), transform=transform, snap=False, zorder=4, gid='link_marker',
+            facecolor=STYLE["link_marker_color"] if filled else 'none',
+            edgecolor='none' if filled else STYLE["link_marker_color"],
+            linewidth=0 if filled else max(size_pt / 5, 0.8),
+        ))
+    # Adding patches must not nudge the autoscaled limits the offsets were computed from.
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
 
 
 def _cap_flags(values, color_vmin, color_vmax):
@@ -319,9 +382,9 @@ def plot_weekly_stacked(
         save_name (str | None): if set, saves the plot under SAVE_FOLDER.
     """
     fig, ax = setup_figure()
-    cmap, norm = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq, norm_center,
-                                      color_vmin=color_vmin, color_vmax=color_vmax,
-                                      hatch_col=hatch_col)
+    cmap, norm, segments = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq,
+                                                norm_center, color_vmin=color_vmin,
+                                                color_vmax=color_vmax, hatch_col=hatch_col)
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -362,6 +425,7 @@ def plot_weekly_stacked(
                      color_ticks=color_ticks, color_invert=color_invert)
 
     plt.tight_layout()
+    _draw_link_markers(ax, segments)
     if save_name:
         plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
 
@@ -413,6 +477,7 @@ def plot_weekly_stacked_multi(
     else:
         xmin = xmax = pd.Timestamp.now()
 
+    panel_segments = []
     for i, panel in enumerate(panels):
         ax = axes[i]
         ax.set_facecolor(STYLE["background_color"])
@@ -420,7 +485,7 @@ def plot_weekly_stacked_multi(
         df = panel['df']
         if len(df) > 0:
             hatch_col = panel.get('hatch_col')
-            cmap, norm = _draw_weekly_stacked(
+            cmap, norm, segments = _draw_weekly_stacked(
                 ax, df,
                 panel['stack_col'], panel['color_col'],
                 color_seq=panel.get('color_seq'),
@@ -429,6 +494,7 @@ def plot_weekly_stacked_multi(
                 color_vmax=panel.get('color_vmax'),
                 hatch_col=hatch_col,
             )
+            panel_segments.append((ax, segments))
             cap_low, cap_high = _cap_flags(df[panel['color_col']],
                                            panel.get('color_vmin'), panel.get('color_vmax'))
             _attach_colorbar(
@@ -485,6 +551,8 @@ def plot_weekly_stacked_multi(
         )
 
     plt.tight_layout()
+    for ax, segments in panel_segments:
+        _draw_link_markers(ax, segments)
     if save_name:
         plt.savefig(os.path.join(SAVE_FOLDER, save_name), dpi=300, bbox_inches="tight")
 

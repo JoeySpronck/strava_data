@@ -2,16 +2,30 @@ name: Update plots from Strava
 
 on:
   workflow_dispatch:  # allows manual trigger and webhook trigger (if configured)
+    inputs:
+      refresh_ids:
+        # Set by the webhook worker: the activities edited since the last run, so their
+        # cached description / private note / streams are refetched. Empty = none.
+        description: 'Comma-separated Strava activity ids to refetch despite the cache'
+        required: false
+        default: ''
   push:
     branches:
       - main  # regenerate plots after every push to main
   schedule:
     - cron: '5 0 * * *'  # runs every day at 00:05 UTC (after midnight in europe)
 
+# One run at a time: overlapping runs would each restore the same cache and race to save it.
+concurrency:
+  group: update-plots
+  cancel-in-progress: false
+
 jobs:
   update-plots:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # Up to 4 rate-limit waits of ~15 min each (STRAVA_RATE_LIMIT_WAITS) plus the run itself.
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -30,13 +44,35 @@ jobs:
         run: |
           pip install -e .
 
+      # .cache/ holds per-activity descriptions and streams (see strava_data/activity_cache.py).
+      # Without it every run would refetch every activity and hit Strava's rate limit.
+      # Cache entries are immutable, so each run saves under a new key and restores the newest.
+      - name: Restore Strava API cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache
+          key: strava-cache-${{ github.run_id }}
+          restore-keys: strava-cache-
+
       - name: Run update script
         env:
+          REFRESH_IDS: ${{ inputs.refresh_ids }}
+          # On Strava's 15-min rate limit, wait for the next window and continue instead of
+          # stopping early, at most this many times (strava_data/activity_cache.py).
+          STRAVA_RATE_LIMIT_WAITS: 4
           STRAVA_CLIENT_ID: ${{ secrets.STRAVA_CLIENT_ID }}
           STRAVA_CLIENT_SECRET: ${{ secrets.STRAVA_CLIENT_SECRET }}
           STRAVA_CLIENT_REFRESH_TOKEN: ${{ secrets.STRAVA_CLIENT_REFRESH_TOKEN }}
         run: |
           python update_plots.py
+
+      - name: Save Strava API cache
+        # Keep what was fetched even if plotting failed, so the next run resumes from it.
+        if: always() && hashFiles('.cache/**') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .cache
+          key: strava-cache-${{ github.run_id }}
 
       - name: Add cache-busting token to plot filenames
         # Append a per-run token to every plot filename + patch the markdown refs so the

@@ -21,6 +21,11 @@ client = login()
 activities_object = client.get_activities(limit=1000)
 activities = list(activities_object)
 
+def _plain(value):
+    """'Run' from stravalib's RootModel types (root='Run'); other values unchanged."""
+    return getattr(value, 'root', value)
+
+
 def get_activity_data(activity):
     activity_dict = dict(activity)
     col_names = ['id','type', 'name', 'distance', 'moving_time', 'elapsed_time',
@@ -28,9 +33,12 @@ def get_activity_data(activity):
                  'average_heartrate', 'max_heartrate', 'elev_high', 'elev_low',
                  'average_speed', 'max_speed']
     row = {k: activity_dict[k] for k in col_names}
+    # stravalib wraps type in a pydantic RootModel: `== 'Run'` works on it, but pandas
+    # `isin` (hash-based) silently matches nothing. Plain strings behave everywhere.
+    row['type'] = _plain(row['type'])
     # sport_type distinguishes trail runs (type is the legacy 'Run' for both); start_date_local
     # gives the correct calendar day. Both are optional in the summary payload, so .get them.
-    row['sport_type'] = activity_dict.get('sport_type')
+    row['sport_type'] = _plain(activity_dict.get('sport_type'))
     row['start_date_local'] = activity_dict.get('start_date_local')
     return row
 
@@ -46,9 +54,48 @@ if os.path.isdir('plots'):
 os.makedirs('plots', exist_ok=True)
 
 # --------------------------
+# DESCRIPTIONS, HIKE SPLITS & LINKS
+# --------------------------
+# Descriptions / private notes need a per-activity get_activity call (the summary API
+# omits them). fetch_text_fields caches results to .cache/ keyed by id, so re-runs only
+# hit the API for new activities — this is what keeps us under the rate limit. In CI the
+# cache survives between runs via actions/cache.
+from strava_data.activity_cache import fetch_text_fields, fetch_split_streams
+from strava_data import hike_split
+
+df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
+
+# Activities whose text changed must be refetched despite the cache: the ids the webhook
+# saw (REFRESH_IDS, comma-separated, set by the workflow) plus everything from the last
+# few days, as a safety net for edits the webhook missed or didn't report.
+REFRESH_RECENT_DAYS = 7
+refresh_ids = {int(x) for x in os.environ.get('REFRESH_IDS', '').replace(' ', '').split(',') if x.isdigit()}
+recent_cutoff = pd.Timestamp.now(tz='UTC') - pd.Timedelta(days=REFRESH_RECENT_DAYS)
+refresh_ids |= set(df_activities.loc[df_activities['start_date'] >= recent_cutoff, 'id'])
+
+PLOTTED_TYPES = ['Run', 'Hike', 'WeightTraining', 'Ride']
+text_ids = df_activities.loc[
+    df_activities['type'].isin(PLOTTED_TYPES) & (df_activities['start_date'].dt.year >= 2025), 'id'
+].tolist()
+df_activities = df_activities.merge(
+    fetch_text_fields(client, text_ids, refresh_ids=refresh_ids), on='id', how='left'
+)
+
+# Runs tagged "<int>% hike" become a run row + a hike row (cadence decides the split);
+# only those few need their streams. See strava_data/hike_split.py.
+split_ids = list(hike_split.tagged_runs(df_activities[df_activities['start_date'].dt.year >= 2025]))
+split_streams = fetch_split_streams(client, split_ids, hike_split.SPLIT_STREAM_TYPES,
+                                    refresh_ids=refresh_ids) if split_ids else {}
+df_activities = hike_split.split_activities(df_activities, split_streams)
+df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
+if split_ids:
+    print(f"Split {len(split_ids)} runs tagged '<int>% hike' into run + hike.")
+# Split pairs and same-day "multisport" activities get a marker in every stacked plot.
+df_activities = hike_split.assign_link_markers(df_activities)
+
+# --------------------------
 # PREPARE RUN DATA
 # --------------------------
-df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
 
 # Filter runs in 2025+
 df_runs = df_activities[
@@ -145,11 +192,7 @@ for runs in [3, 4, 5]:
 # --------------------------
 # HIKE & STRENGTH SUPPORT
 # --------------------------
-# Descriptions / private notes need a per-activity get_activity call (the summary API
-# omits them). fetch_text_fields caches results to .cache/ keyed by id, so re-runs only
-# hit the API for new activities — this is what keeps us under the rate limit.
-from strava_data.activity_cache import fetch_text_fields
-
+# description / private_note were merged into df_activities above.
 KG_PATTERN = re.compile(r'(\d+)\s*kg', re.IGNORECASE)
 VOLUME_PATTERN = re.compile(r'(\d{2,7})\s*kg\s*volume', re.IGNORECASE)
 
@@ -176,10 +219,10 @@ if len(df_hikes) > 0:
     df_hikes['distance_km'] = df_hikes['distance'] / 1000
     df_hikes['week'] = df_hikes['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
-    hike_text = fetch_text_fields(client, df_hikes['id'].tolist())
-    df_hikes = df_hikes.merge(hike_text, on='id', how='left')
+    # The hike part of a split run carried nothing extra (any "kg" there is about the run).
     df_hikes['weight_kg'] = df_hikes.apply(
-        lambda r: _first_int_match(KG_PATTERN, r['name'], r.get('description'), r.get('private_note')) or 0,
+        lambda r: 0 if r['split_part'] == 'hike' else
+        _first_int_match(KG_PATTERN, r['name'], r.get('description'), r.get('private_note')) or 0,
         axis=1,
     )
 
@@ -209,8 +252,6 @@ if len(df_strength) > 0:
     df_strength['week'] = df_strength['start_date'].dt.to_period('W-SUN').apply(lambda r: r.end_time)
     df_strength['time_min'] = df_strength['moving_time'] / 60
 
-    strength_text = fetch_text_fields(client, df_strength['id'].tolist())
-    df_strength = df_strength.merge(strength_text, on='id', how='left')
     df_strength['volume_kg'] = df_strength.apply(
         lambda r: _first_int_match(VOLUME_PATTERN, r.get('description'), r.get('private_note')),
         axis=1,
@@ -315,7 +356,7 @@ if len(df_strength) > 0:
 if overview_panels:
     vis.plot_weekly_stacked_multi(
         overview_panels,
-        panel_height=1.85,  # ~1.2x the old 1.5 so the overview isn't squashed on the web / .md pages
+        panel_height=2.2,
         save_name='weekly_overview_all_sports.png',
     )
 

@@ -26,6 +26,25 @@ plots that refresh automatically. The plots live on the `plot_updates` branch so
 - **GitHub Actions** (`.github/workflows/update_plots.yml`) — runs `update_plots.py` daily, on push to `main`, manually via github actions, and on webhook trigger (when an activity is added/edited on strava), then publishes the regenerated plots and dashboard to the `plot_updates` branch.
 - **`dev/`** contains `playground.ipynb`, whis is a development notebook version of `update_plots.py`, `aerobic_decoupling.ipynb` (the notebook version of the decoupling page), and other development files. 
 
+### Tags in activity notes
+
+A few words in an activity's title, description or private note change how it's counted:
+
+- **`<int>% hike`** on a run (e.g. `~30% hiked`) — the run is split into a run part and a
+  hike part. The cadence stream decides which stretches were hiked; the percentage is only
+  a sanity check (a warning is printed if they disagree by more than 15 percentage points).
+  The run part keeps only the running distance and time, so volume and pace reflect the
+  running; the hike part shows up in the hiking plots with 0 kg carried. Without cadence,
+  the slowest `p%` of distance counts as hiked; without any stream, the distance is split
+  by `p`. A note without a percentage ("walked the uphills") changes nothing.
+- **`multisport`** (or `multi sport` / `multi-sport`) on two or more activities on the same day links them.
+- **`<n>kg`** on a hike is the carried weight; **`<n>kg volume`** on a strength session its volume.
+
+Linked activities (split runs and `multisport` days) get a black marker on their bar in
+every weekly stacked plot: ● for the first linked group in a week, then ▲, ■ and ✕.
+The logic lives in `strava_data/hike_split.py`; `python tests/test_hike_split.py` tests it
+on synthetic streams.
+
 ### Aerobic decoupling
 
 `web/decoupling.html` analyses one run at a time from a file you download from Strava:
