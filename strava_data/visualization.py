@@ -21,6 +21,8 @@ SAVE_FOLDER = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 # Pace colorbar ticks (min/km): every 30 s below 7:00, whole minutes from 7:00 on, so the
 # slow tail doesn't crowd the bar with labels.
 PACE_TICKS = [m / 2 for m in range(2, 14)] + list(range(7, 21))
+ELEVATION_COLOR_GAMMA = 0.5  # square-root color scale for run elevation gain
+ELEVATION_TICKS = [0, 25, 50, 100, 200, 300, 400, 600, 800, 1000, 1500, 2000]
 
 # === GLOBAL PLOT STYLE SETTINGS ===
 COLORS = {
@@ -85,6 +87,10 @@ STYLE = {
     "color_seq_distance": [COLORS["dark"], COLORS["neutral"], COLORS["main"]],  # short → neutral → long
     "color_seq_pace": [COLORS["main"], COLORS["neutral"], COLORS["dark"]],      # fast → neutral → slow
     "color_seq_risk": [COLORS["dark"], COLORS["neutral"], COLORS["main"]],      # low → neutral → high
+    "color_seq_elevation": [COLORS["dark"], COLORS["neutral"], COLORS["main"]], # flat → neutral → hilly
+    # Fill for segments without a color value (e.g. elevation of a split run's parts, which
+    # can't be apportioned): outside the colormap, so it doesn't read as a low value.
+    "missing_color": COLORS["darker"],
 }
 
 # === MONTH CALENDAR SETTINGS ===
@@ -180,12 +186,16 @@ def metric_colormap(color_seq=None):
 
 
 def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_center=None,
-                         color_vmin=None, color_vmax=None, hatch_col=None):
+                         color_vmin=None, color_vmax=None, hatch_col=None, color_gamma=None):
     """Draw stacked weekly bars onto an existing axes. Returns (cmap, norm).
 
     color_vmin / color_vmax override the data-derived color range. Use them to cap the
     scale so a couple of extreme activities don't compress everything else into one end
     of the colormap; out-of-range values clamp to the end colors (clip=True).
+
+    color_gamma: if set, a power-law color scale (value ** gamma) instead of a linear one.
+    Below 1 it spreads the low end, for long-tailed metrics where most values are small
+    (e.g. 0.5 = square root). The colorbar spacing follows the same scale.
 
     hatch_col: optional name of a boolean column; rows that are True get diagonal hatching
     overlaid on their segment (used to mark trail runs apart from road runs).
@@ -205,6 +215,8 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
         lo = min(vmin, norm_center - eps)
         hi = max(vmax, norm_center + eps)
         norm = mcolors.TwoSlopeNorm(vmin=lo, vcenter=norm_center, vmax=hi)
+    elif color_gamma is not None:
+        norm = mcolors.PowerNorm(color_gamma, vmin=vmin, vmax=vmax, clip=True)
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
 
@@ -218,7 +230,8 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
             height = row[stack_col]
             if has_links and isinstance(row['link_marker'], str):
                 segments.append((week, bottom, height, row['link_marker']))
-            fill = cmap(norm(values.loc[row.name]))
+            value = values.loc[row.name]
+            fill = STYLE["missing_color"] if pd.isna(value) else cmap(norm(value))
             is_trail = bool(hatch_col and row[hatch_col])
             # Base bar: just the fill, no border yet (the black border is drawn last so it
             # sits ON TOP of any hatch and the hatch can't protrude past the bar edges).
@@ -426,6 +439,7 @@ def plot_weekly_stacked(
     hatch_col=None,
     color_ticks=None,
     color_invert=False,
+    color_gamma=None,
     save_name=None,
 ):
     """
@@ -449,12 +463,14 @@ def plot_weekly_stacked(
             cap clamp to the end colors.
         color_ticks (list[float] | None): explicit colorbar tick values (out-of-range ones are dropped).
         color_invert (bool): flip the colorbar so low values sit on top.
+        color_gamma (float | None): power-law color scale; < 1 spreads the low end (0.5 = sqrt).
         save_name (str | None): if set, saves the plot under SAVE_FOLDER.
     """
     fig, ax = setup_figure()
     cmap, norm, segments = _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq,
                                                 norm_center, color_vmin=color_vmin,
-                                                color_vmax=color_vmax, hatch_col=hatch_col)
+                                                color_vmax=color_vmax, hatch_col=hatch_col,
+                                                color_gamma=color_gamma)
 
     # --- Axes formatting ---
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -690,6 +706,7 @@ def plot_weekly_stacked_multi(
                 color_vmin=panel.get('color_vmin'),
                 color_vmax=panel.get('color_vmax'),
                 hatch_col=hatch_col,
+                color_gamma=panel.get('color_gamma'),
             )
             panel_segments.append((ax, segments))
             cap_low, cap_high = _cap_flags(df[panel['color_col']],
@@ -778,14 +795,14 @@ def plot_weekly_stacked_multi(
 
 def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     """
-    Plot weekly stacked run bars colored by 'distance', 'pace', or 'risk'.
+    Plot weekly stacked run bars colored by 'distance', 'pace', 'risk', or 'elevation'.
 
     Thin wrapper over `plot_weekly_stacked` that sets the run-specific stack column
     (distance_km) and configures the chosen color dimension.
 
     Parameters:
         df_runs (pd.DataFrame): runs with 'week', 'distance_km', 'average_speed', 'sport_type'.
-        col (str): 'distance', 'pace', or 'risk'.
+        col (str): 'distance', 'pace', 'risk', or 'elevation' (total_elevation_gain, m).
 
     Trail runs (sport_type containing 'Trail') are drawn with the same color metric as road
     runs but overlaid with diagonal hatching so they stand out.
@@ -839,8 +856,24 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
             hatch_col='is_trail',
             save_name=save_name,
         )
+    elif col == 'elevation':
+        plot_weekly_stacked(
+            df_runs,
+            stack_col='distance_km',
+            color_col='total_elevation_gain',
+            stack_label='Distance (km)',
+            color_label='Elevation gain (m)',
+            title='Weekly Distance Stacked per Run  |  Elevation Gain',
+            color_seq=STYLE["color_seq_elevation"],
+            # Long-tailed (median ~50 m, a few mountain runs of 800+ m): a square-root scale
+            # keeps the full range while giving everyday 50-200 m runs visibly lighter colors.
+            color_gamma=ELEVATION_COLOR_GAMMA,
+            color_ticks=ELEVATION_TICKS,
+            hatch_col='is_trail',
+            save_name=save_name,
+        )
     else:
-        raise ValueError("col must be 'distance', 'pace', or 'risk'")
+        raise ValueError("col must be 'distance', 'pace', 'risk', or 'elevation'")
 
 def grow_target(prev: float, recovery_ceiling=None) -> float:
     """Next weekly volume target.

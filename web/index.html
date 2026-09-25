@@ -16,11 +16,12 @@
   <div class="topbar-inner">
     <span class="brand">STRAVA<span class="dot">·</span>DATA</span>
     <nav class="nav">
+      <a href="#overview">Overview</a>
+      <a href="#calendar">Calendar</a>
+      <a href="decoupling.html">Decoupling</a>
       <a href="#progression">Progress</a>
       <a href="#plans">Plans</a>
       <a href="#sports">Sports</a>
-      <a href="#calendar">Calendar</a>
-      <a href="decoupling.html">Decoupling</a>
     </nav>
     <span class="meta">Updated <span id="build">__BUILD_TOKEN__</span></span>
   </div>
@@ -36,6 +37,44 @@
        <a href="https://github.com/JoeySpronck/strava_data">main branch</a>
        for what this repo is and how it works.</p>
   </div>
+
+  <!-- All-sports overview -->
+  <section id="overview">
+    <div class="section-head"><h2>🏃 🚴 🥾 🏋️ All-sports overview</h2></div>
+    <p class="note">Running, cycling, hiking and strength stacked on a shared time axis. Color
+      encodes speed (run/ride), carried weight (hike) and volume rate (strength). The injury
+      timeline below running marks the week each injury started (abbreviations in its legend),
+      with a faint orange band through that week in every sport panel.</p>
+    <div class="card"><img src="../plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" loading="lazy"></div>
+  </section>
+
+  <!-- Monthly calendar -->
+  <section id="calendar">
+    <div class="section-head"><h2>📅 Monthly activity calendar</h2></div>
+    <p class="note">Strava-style month view: each day is a circle, filled on activity days (letter =
+      sport: <strong>T</strong>rail, <strong>R</strong>un, <strong>H</strong>ike,
+      <strong>S</strong>trength, <strong>B</strong>ike). Color and size follow the overview's metric
+      scale and bar magnitude. <a href="calendar.html">See all months →</a></p>
+    <div class="grid-2">
+      <div>
+        <div class="sub">This month</div>
+        <div class="card"><img src="../plots/month_calendar.png" alt="This month's activity calendar" loading="lazy"></div>
+      </div>
+      <div>
+        <div class="sub">Previous month</div>
+        <div class="card"><img src="../plots/month_calendar_prev.png" alt="Previous month's activity calendar" loading="lazy"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Aerobic decoupling (interactive) -->
+  <section id="decoupling">
+    <div class="section-head"><h2>📉 Aerobic decoupling</h2></div>
+    <p class="note">The one page here that is not a picture: drop in a run exported from Strava
+      (.gpx or .fit), drag two intervals over it, and see how far efficiency drifted between
+      them — normalized graded pace per heartbeat, early versus late. The file is analysed in
+      your browser and never uploaded. <a href="decoupling.html">Open the analyzer →</a></p>
+  </section>
 
   <!-- Weekly volume progression -->
   <section id="progression">
@@ -87,6 +126,12 @@
 
     <div class="sub">Color = Distance</div>
     <div class="card"><img src="../plots/weekly_distance.png" alt="Weekly distance" loading="lazy"></div>
+
+    <div class="sub">Color = Elevation gain</div>
+    <p class="note">Total elevation gain per run (m), on a square-root color scale so everyday
+      50–200 m runs aren't all dark next to the few mountain runs. The two parts of a split run
+      have no elevation of their own and show dark gray.</p>
+    <div class="card"><img src="../plots/weekly_elevation.png" alt="Weekly elevation gain" loading="lazy"></div>
   </section>
 
   <!-- Cycling -->
@@ -112,44 +157,6 @@
       (kg), color is volume rate (kg/min). Volume is parsed from <code>NNNN kg volume</code> in
       description / private note.</p>
     <div class="card"><img src="../plots/weekly_strength_volume.png" alt="Weekly strength" loading="lazy"></div>
-  </section>
-
-  <!-- All-sports overview -->
-  <section>
-    <div class="section-head"><h2>🏃 🚴 🥾 🏋️ All-sports overview</h2></div>
-    <p class="note">Running, cycling, hiking and strength stacked on a shared time axis. Color
-      encodes speed (run/ride), carried weight (hike) and volume rate (strength). The injury
-      timeline below running marks the week each injury started (abbreviations in its legend),
-      with a faint orange band through that week in every sport panel.</p>
-    <div class="card"><img src="../plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" loading="lazy"></div>
-  </section>
-
-  <!-- Aerobic decoupling (interactive) -->
-  <section id="decoupling">
-    <div class="section-head"><h2>📉 Aerobic decoupling</h2></div>
-    <p class="note">The one page here that is not a picture: drop in a run exported from Strava
-      (.gpx or .fit), drag two intervals over it, and see how far efficiency drifted between
-      them — normalized graded pace per heartbeat, early versus late. The file is analysed in
-      your browser and never uploaded. <a href="decoupling.html">Open the analyzer →</a></p>
-  </section>
-
-  <!-- Monthly calendar -->
-  <section id="calendar">
-    <div class="section-head"><h2>📅 Monthly activity calendar</h2></div>
-    <p class="note">Strava-style month view: each day is a circle, filled on activity days (letter =
-      sport: <strong>T</strong>rail, <strong>R</strong>un, <strong>H</strong>ike,
-      <strong>S</strong>trength, <strong>B</strong>ike). Color and size follow the overview's metric
-      scale and bar magnitude. <a href="calendar.html">See all months →</a></p>
-    <div class="grid-2">
-      <div>
-        <div class="sub">This month</div>
-        <div class="card"><img src="../plots/month_calendar.png" alt="This month's activity calendar" loading="lazy"></div>
-      </div>
-      <div>
-        <div class="sub">Previous month</div>
-        <div class="card"><img src="../plots/month_calendar_prev.png" alt="Previous month's activity calendar" loading="lazy"></div>
-      </div>
-    </div>
   </section>
 
 </main>

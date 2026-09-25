@@ -22,7 +22,7 @@ https://<your-username>.github.io/<your-repo>/web/
 | `index.html` | The dashboard. Mirrors the sections of `PLOTS.md`, pulling images from `../plots/`. |
 | `style.css` | Shared dark theme (black background, Strava orange). Used by both pages. |
 | `calendar.html` | The full monthly-calendar archive. **Generated** by `update_plots.py` — don't hand-edit. |
-| `decoupling.html` | Interactive aerobic-decoupling analyzer for one run: drop in a Strava export, drag two intervals, read the drift. |
+| `decoupling.html` | Interactive aerobic-decoupling analyzer for one run: drop in a Strava export, drag two intervals, read the drift. Standalone and shareable: it links to nothing else on the site, so people you send it to don't land on the dashboard. |
 | `activity_file.js` | Reads a `.gpx` or `.fit` into sample streams — a port of `strava_data/activity_file.py`. |
 | `decoupling.js` | The maths behind that page — a port of `strava_data/decoupling.py`. Pure functions, no DOM. |
 | `README.md` | This file. |

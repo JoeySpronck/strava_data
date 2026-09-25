@@ -161,6 +161,7 @@ plan_target = round(vis.grow_target(week_target, recovery_ceiling), 1) if target
 vis.plot_weekly(df_runs, col='distance', save_name='weekly_distance.png')
 vis.plot_weekly(df_runs, col='pace', save_name='weekly_pace.png')
 vis.plot_weekly(df_runs, col='risk', save_name='weekly_risk.png')
+vis.plot_weekly(df_runs, col='elevation', save_name='weekly_elevation.png')
 
 # Weekly volume progression
 vis.plot_weekly_distance_targets(

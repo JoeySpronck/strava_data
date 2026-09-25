@@ -57,7 +57,8 @@ open the activity, ⋯ → **Export GPX**, or **Export Original** for the watch'
 points). Drop the file on the page, drag two intervals over the session, and read how far
 efficiency (normalized graded pace per heartbeat) drifted between them. The file is
 parsed and analysed in the browser and never uploaded, so no activity data is published
-anywhere. `dev/aerobic_decoupling.ipynb` does the same from a file path.
+anywhere. The page is standalone (no links to the dashboard or repo), so its URL can be
+shared on its own. `dev/aerobic_decoupling.ipynb` does the same from a file path.
 
 - `strava_data/activity_file.py` / `web/activity_file.js` — GPX and FIT into one stream document.
 - `strava_data/decoupling.py` / `web/decoupling.js` — Minetti graded pace, 30 s 4th-power normalization, efficiency factor.
