@@ -81,7 +81,7 @@ These figures update automatically via GitHub Actions. See the [main branch](htt
 
 ---
 ### 🏃🚴🥾🏋️ All-Sports Overview
-> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength).
+> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength). The injury timeline below running marks the week each injury started (abbreviations in its legend), with a faint orange band through that week in every sport panel.
 <p align="left">
   <img src="plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" width="800">
 </p>

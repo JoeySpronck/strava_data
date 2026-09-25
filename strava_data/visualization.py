@@ -5,7 +5,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import matplotlib.colors as mcolors
 from matplotlib.markers import MarkerStyle
+from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Circle, FancyBboxPatch, PathPatch, Polygon as MplPolygon
+from matplotlib.textpath import TextPath
 from matplotlib.transforms import Affine2D, ScaledTranslation
 from sklearn.preprocessing import StandardScaler
 import numpy as np
@@ -62,6 +64,19 @@ STYLE = {
     # week (dot, triangle, square, x) comes from strava_data.hike_split.LINK_MARKERS.
     "link_marker_color": COLORS["background"],
     "link_marker_size": 0.6,  # marker diameter as a fraction of the bar width (max ~0.9 to stay inside)
+    # Event panels (e.g. injuries) in plot_weekly_stacked_multi: an orange circle with a white
+    # abbreviation on a thin horizontal line, one per event start date.
+    # Figures with an event panel lay rows out in inches instead of tight_layout's uniform gap,
+    # so the event panel can hug the panel above it.
+    "event_panel_height": 0.2,     # inches; the (taller) legend, centred on the line, overhangs it
+    "event_gap_above": 0.33,       # inches between the panel above and the event panel
+    "panel_gap": 0.38,             # inches between panels otherwise (room for the next title)
+    "event_marker_size": 12,       # circle diameter in points
+    "event_fontsize": 5,
+    "event_cap_height": 0.73,      # DejaVu Sans cap height / font size, to centre labels in circles
+    "event_legend_fontsize": 7,
+    "event_legend_rowsep": 0.5,    # points between legend rows
+    "event_line_alpha": 0.15,      # faint orange band (one bar wide) through each event week, sport panels
     "width_small": 5,
     "width_large": 12,
     "height_large": 6,
@@ -435,6 +450,95 @@ def plot_weekly_stacked(
         plt.close()
 
 
+def _event_weeks(df):
+    """Week (end-of-week Sunday, same x as the bars) of each event date."""
+    return pd.to_datetime(df['date']).dt.to_period('W-SUN').apply(lambda r: r.end_time)
+
+
+def _draw_event_panel(ax, df, ylabel=None):
+    """Thin timeline: an orange circle with a white label per event, on a horizontal line.
+
+    df needs ``date`` and ``label`` columns, plus an optional ``description`` column that
+    fills a label → description legend on the right. Events are plotted on their week (the
+    same Sunday x as the bars) so they line up with the activities above and below.
+    The line is the bottom spine moved to y=0, so it matches the other panels' borders and
+    the month ticks hang directly off it. Circles are sized in points so they stay
+    round on the wide, short axes; events in the same or adjacent weeks overlap, later on top.
+    """
+    ax.set_ylim(-1, 1)
+    ax.set_yticks([])
+    for side in ('top', 'right', 'left'):
+        ax.spines[side].set_visible(False)
+    ax.spines['bottom'].set_position(('data', 0))
+    if ylabel:
+        ax.set_ylabel(ylabel, color=STYLE["text_color"], fontsize=STYLE["small_fontsize"], labelpad=6)
+    if len(df) == 0:
+        return
+    df = df.sort_values('date')
+    weeks = _event_weeks(df)
+    # Circles and labels are patches positioned in points around the week's x, unsnapped: Agg
+    # rounds scatter markers and text to whole pixels, which left labels visibly off-centre.
+    radius_pt = STYLE["event_marker_size"] / 2
+    font = FontProperties(family=STYLE["font_family"], weight='bold')
+    fontsize = STYLE["event_fontsize"]
+    for week, label in zip(weeks, df['label']):
+        at_week = ax.figure.dpi_scale_trans + ScaledTranslation(mdates.date2num(week), 0, ax.transData)
+        ax.add_patch(Circle(
+            (0, 0), radius_pt / 72, transform=at_week, snap=False, zorder=3, clip_on=False,
+            facecolor=STYLE["highlight_color"], edgecolor=STYLE["background_color"], linewidth=0.6,
+        ))
+        # Centre the ink horizontally; vertically put the baseline half a cap height below the
+        # centre (centring the ink box would shift labels with descenders or overshoot).
+        path = TextPath((0, 0), label, size=fontsize, prop=font)
+        ink = path.get_extents()
+        to_center = Affine2D().translate(-(ink.x0 + ink.x1) / 2,
+                                         -0.5 * STYLE["event_cap_height"] * fontsize).scale(1 / 72)
+        ax.add_patch(PathPatch(path, transform=to_center + at_week, snap=False, zorder=4,
+                               clip_on=False, facecolor=STYLE["neutral_color"], linewidth=0))
+
+    if 'description' in df.columns:
+        # Built from left-aligned text columns ("PF:" | full name) instead of ax.legend, so
+        # every description starts at the same x regardless of the abbreviation's width.
+        from matplotlib.offsetbox import AnchoredOffsetbox, DrawingArea, HPacker, VPacker
+        pairs = df.drop_duplicates('label')[['label', 'description']]
+        size = STYLE["event_legend_fontsize"]
+
+        legend_font = FontProperties(family=STYLE["font_family"])
+        # Uniform row height from the font's line metrics ("lp": ascender + descender).
+        line = TextPath((0, 0), 'lp', size=size, prop=legend_font).get_extents()
+
+        def glyphs(text, color):
+            # Text as an unsnapped outline whose ink starts at x=0: glyphs carry their own left
+            # margin (side bearing: wide for I/P/B, ~0 for T), and Agg rounds text to whole
+            # pixels, so plain text rows started their first letters at visibly different x.
+            path = TextPath((0, 0), text, size=size, prop=legend_font)
+            ink = path.get_extents()
+            area = DrawingArea(ink.x1 - ink.x0, line.y1 - line.y0, 0, -line.y0)
+            area.add_artist(PathPatch(path, transform=Affine2D().translate(-ink.x0, 0) + area.get_transform(),
+                                      snap=False, facecolor=color, linewidth=0))
+            return area
+
+        def column(texts, color):
+            return VPacker(children=[glyphs(t, color) for t in texts], align='left', pad=0,
+                           sep=STYLE["event_legend_rowsep"])
+
+        table = HPacker(children=[
+            column([f"{lab}:" for lab in pairs['label']], STYLE["neutral_color"]),
+            column(list(pairs['description']), STYLE["text_color"]),
+        ], align='top', pad=0, sep=4)
+        # Centred on the line; it overhangs the slim panel into the gaps above and below, which
+        # event_gap_above / panel_gap keep clear of the neighbouring panels' tick labels.
+        ax.add_artist(AnchoredOffsetbox(loc='center left', child=table, pad=0, borderpad=0, frameon=False,
+                                        bbox_to_anchor=(1.01, 0.5), bbox_transform=ax.transAxes))
+
+
+def _reserve_colorbar_space(ax):
+    """Invisible colorbar so a panel without one keeps the same width as its neighbours."""
+    sm = plt.cm.ScalarMappable()
+    sm.set_array([])
+    plt.colorbar(sm, ax=ax, pad=0.05).ax.set_visible(False)
+
+
 def plot_weekly_stacked_multi(
     panels,
     save_name=None,
@@ -454,6 +558,10 @@ def plot_weekly_stacked_multi(
           Optional keys:
             color_seq, norm_center, color_format_fn, color_vmin, color_vmax,
             color_ticks, color_invert.
+          A panel with ``kind='events'`` is instead a slim timeline (see
+          `_draw_event_panel`); it takes df (``date`` + ``label`` columns, optional
+          ``description`` for the legend) and title (shown as the y label). It sits
+          just below the panel before it; see STYLE's event_* / panel_gap for sizes.
         panel_height (float): height in inches per panel (default 1.6).
         width (float | None): figure width; defaults to STYLE['width_large'].
         suptitle (str | None): figure-level title above all panels.
@@ -464,25 +572,59 @@ def plot_weekly_stacked_multi(
         width = STYLE["width_large"]
 
     plt.style.use('dark_background')
-    fig, axes = plt.subplots(n, 1, figsize=(width, panel_height * n + 0.6), sharex=True)
+    is_event = [p.get('kind') == 'events' for p in panels]
+    if any(is_event):
+        # tight_layout would give every row the same gap, sized for the tallest thing between
+        # rows. Instead: panel rows interleaved with empty spacer rows whose heights are set in
+        # inches once tight_layout has fixed the margins (see below).
+        gaps = [STYLE["event_gap_above"] if ev else STYLE["panel_gap"] for ev in is_event[1:]]
+        n_sport = n - sum(is_event)
+        fig_height = (panel_height * n_sport + 0.6
+                      + sum(STYLE["event_panel_height"] + STYLE["event_gap_above"] for ev in is_event if ev))
+        fig = plt.figure(figsize=(width, fig_height))
+        gs = fig.add_gridspec(2 * n - 1, 1, hspace=0)
+        axes = []
+        for i in range(n):
+            axes.append(fig.add_subplot(gs[2 * i], sharex=axes[0] if axes else None))
+            if i < n - 1:
+                axes[-1].tick_params(labelbottom=False)
+    else:
+        fig, axes = plt.subplots(n, 1, figsize=(width, panel_height * n + 0.6), sharex=True)
+        if n == 1:
+            axes = [axes]
     fig.patch.set_facecolor(STYLE["background_color"])
     plt.rcParams["font.family"] = STYLE["font_family"]
-    if n == 1:
-        axes = [axes]
 
     # Shared x-range across all panels so weeks align.
-    all_weeks = pd.concat([p['df']['week'] for p in panels if len(p['df']) > 0])
+    all_weeks = pd.concat([p['df']['date' if p.get('kind') == 'events' else 'week']
+                           for p in panels if len(p['df']) > 0])
     if len(all_weeks) > 0:
         xmin, xmax = all_weeks.min(), all_weeks.max()
     else:
         xmin = xmax = pd.Timestamp.now()
 
+    # Faint orange bar-wide bands through every event week in the sport panels (the event panel
+    # itself already has its circles), so it's easy to see which bars line up with an event.
+    event_weeks = sorted({w for p in panels if p.get('kind') == 'events' and len(p['df']) > 0
+                          for w in _event_weeks(p['df'])})
+
     panel_segments = []
     for i, panel in enumerate(panels):
         ax = axes[i]
         ax.set_facecolor(STYLE["background_color"])
+        if panel.get('kind') != 'events':
+            half_bar = pd.Timedelta(days=STYLE["bar_width"] / 2)
+            for week in event_weeks:
+                ax.axvspan(week - half_bar, week + half_bar, color=STYLE["highlight_color"],
+                           alpha=STYLE["event_line_alpha"], linewidth=0, zorder=0)
 
         df = panel['df']
+        if panel.get('kind') == 'events':
+            _reserve_colorbar_space(ax)
+            ax.tick_params(axis='x', colors=STYLE["text_color"])
+            ax.set_xlim(xmin - pd.Timedelta(days=5), xmax + pd.Timedelta(days=5))
+            _draw_event_panel(ax, df, ylabel=panel.get('title'))
+            continue
         if len(df) > 0:
             hatch_col = panel.get('hatch_col')
             cmap, norm, segments = _draw_weekly_stacked(
@@ -550,7 +692,24 @@ def plot_weekly_stacked_multi(
             weight=STYLE["title_weight"],
         )
 
+    # One x for all y labels: the event panel has no tick labels, and the sport panels' tick
+    # labels differ in width, so each label would otherwise sit at its own distance.
+    fig.align_ylabels(axes)
     plt.tight_layout()
+    if any(is_event):
+        # tight_layout set the outer margins; now size the rows in inches: fixed gaps and event
+        # panels, the remaining height split evenly over the sport panels.
+        area = fig.get_figheight() * (fig.subplotpars.top - fig.subplotpars.bottom)
+        sport_height = (area - sum(gaps) - STYLE["event_panel_height"] * sum(is_event)) / n_sport
+        heights = [STYLE["event_panel_height"] if is_event[0] else sport_height]
+        for gap, ev in zip(gaps, is_event[1:]):
+            heights += [gap, STYLE["event_panel_height"] if ev else sport_height]
+        gs.set_height_ratios(heights)
+        # Existing axes (colorbars included, they live in sub-grids of their panel's cell) keep
+        # their old positions until re-placed from their grid cells.
+        for ax in fig.axes:
+            if ax.get_subplotspec() is not None:
+                ax.set_position(ax.get_subplotspec().get_position(fig))
     for ax, segments in panel_segments:
         _draw_link_markers(ax, segments)
     if save_name:

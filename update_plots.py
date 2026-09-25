@@ -62,6 +62,7 @@ os.makedirs('plots', exist_ok=True)
 # cache survives between runs via actions/cache.
 from strava_data.activity_cache import fetch_text_fields, fetch_split_streams
 from strava_data import hike_split
+from strava_data import injuries
 
 df_activities['start_date'] = pd.to_datetime(df_activities['start_date'], utc=True)
 
@@ -330,6 +331,8 @@ if len(df_runs_overview) > 0:
         color_vmax=OVERVIEW_PACE_MAX,
         hatch_col='is_trail',
     ))
+# Injury timeline (strava_data/injuries.py) right below running.
+overview_panels.append(injuries.injury_panel())
 if len(df_rides) > 0:
     overview_panels.append(dict(
         df=df_rides,
