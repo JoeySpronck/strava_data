@@ -144,7 +144,16 @@ def setup_figure(width=STYLE["width_large"], height=STYLE["height_large"]):
     fig.patch.set_facecolor(STYLE["background_color"])
     ax.set_facecolor(STYLE["background_color"])
     plt.rcParams["font.family"] = STYLE["font_family"]
+    _spines_on_top(ax)
     return fig, ax
+
+
+def _spines_on_top(ax):
+    """Draw the axes border (spines, zorder 2.5 by default) above the bars and their black
+    borders (zorder up to 3) and the link glyphs (4), so bars never cover it."""
+    for spine in ax.spines.values():
+        spine.set_zorder(5)
+
 
 def _darken(color, factor):
     """Return `color` darkened by scaling its HSV brightness by `factor` (0..1).
@@ -197,6 +206,8 @@ def _draw_weekly_stacked(ax, df, stack_col, color_col, color_seq=None, norm_cent
         norm = mcolors.TwoSlopeNorm(vmin=lo, vcenter=norm_center, vmax=hi)
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+
+    _spines_on_top(ax)
 
     segments = []
     has_links = 'link_marker' in df.columns

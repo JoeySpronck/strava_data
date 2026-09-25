@@ -9,7 +9,7 @@ INJURIES = [
     # start_date,  end_date, abbreviation, full_name
     ('2025-06-01', None, 'PF', 'Plantar Fasciitis'),
     ('2025-07-23', None, 'PF', 'Plantar Fasciitis'),
-    ('2025-09-18', None, 'IT', 'IT Band'),
+    ('2025-08-18', None, 'IT', 'IT Band'),
     ('2026-02-18', None, 'SI', 'Sick'),
     ('2026-04-13', None, 'SS', 'Shin Splints'),
     ('2026-05-06', None, 'BS', 'Bone Stress'),
