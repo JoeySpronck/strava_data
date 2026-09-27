@@ -1,29 +1,29 @@
 """Manually logged injuries / sickness, drawn as an event timeline in the all-sports overview.
 
-Add a row per injury; end_date is kept for later use (not drawn yet). Shared by
-update_plots.py and dev/playground.ipynb.
+Add a row per injury: duration is in weeks, color a key of visualization.COLORS for the
+circle. 'main' injuries also get an orange band over their duration in the sport panels.
+Shared by update_plots.py and dev/playground.ipynb.
 """
 import pandas as pd
 
 INJURIES = [
-    # start_date,  end_date, abbreviation, full_name
-    ('2025-06-01', None, 'PF', 'Plantar Fasciitis'),
-    ('2025-07-23', None, 'PF', 'Plantar Fasciitis'),
-    ('2025-08-18', None, 'IT', 'IT Band'),
-    ('2026-02-18', None, 'SI', 'Sick'),
-    ('2026-04-13', None, 'SS', 'Shin Splints'),
-    ('2026-05-06', None, 'BS', 'Bone Stress'),
-    ('2026-06-21', None, 'IT', 'IT Band'),
-    ('2026-08-19', None, 'BS', 'Bone Stress'),
-    ('2026-09-02', None, 'TT', 'Tibial Tendinopathy'),
-    ('2026-09-14', None, 'BS', 'Bone Stress'),
+    # start_date,  duration, abbreviation, full_name, color
+    ('2025-06-01', 3, 'PF', 'Plantar Fasciitis', 'main'),
+    ('2025-07-23', 3, 'PF', 'Plantar Fasciitis', 'main'),
+    ('2025-08-18', 2, 'IT', 'IT Band', 'main'),
+    ('2026-02-18', 3, 'SI', 'Sick', 'dark'),
+    ('2026-04-13', 3, 'SS', 'Shin Splints', 'main'),
+    ('2026-05-06', 4, 'BS', 'Bone Stress', 'main'),
+    ('2026-06-21', 1, 'IT', 'IT Band', 'dark'),
+    ('2026-08-19', 6, 'BS', 'Bone Stress', 'main'),
+    ('2026-09-02', 1, 'TT', 'Tibial Tendinopathy', 'dark'),
+    # ('2026-09-14', 4, 'BS', 'Bone Stress', 'main'),
 ]
 
 
 def injuries_df():
-    df = pd.DataFrame(INJURIES, columns=['start_date', 'end_date', 'abbreviation', 'full_name'])
+    df = pd.DataFrame(INJURIES, columns=['start_date', 'duration', 'abbreviation', 'full_name', 'color'])
     df['start_date'] = pd.to_datetime(df['start_date'])
-    df['end_date'] = pd.to_datetime(df['end_date'])
     return df
 
 

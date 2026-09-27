@@ -314,6 +314,8 @@ df_runs_overview['pace_min_per_km'] = (1000 / df_runs_overview['average_speed'])
 # Trail runs share the legacy type 'Run'; sport_type tells them apart so they can be hatched.
 df_runs_overview['is_trail'] = df_runs_overview['sport_type'].astype(str).str.contains('Trail', case=False, na=False)
 
+# Panel heights in inches, per sport.
+OVERVIEW_HEIGHTS = dict(running=1.8, hiking=1.2, strength=1.2, cycling=1.2)
 overview_panels = []
 if len(df_runs_overview) > 0:
     overview_panels.append(dict(
@@ -321,6 +323,7 @@ if len(df_runs_overview) > 0:
         stack_col='distance_km', color_col='pace_min_per_km',
         stack_label='Distance (km)', color_label='Pace (min/km)',
         title='Running  |  Pace',
+        height=OVERVIEW_HEIGHTS['running'],
         # Same pace styling as the individual weekly pace plot (fast = orange, centered on mean pace).
         color_seq=vis.STYLE["color_seq_pace"],
         norm_center=df_runs_overview['pace_min_per_km'].mean(),
@@ -334,19 +337,13 @@ if len(df_runs_overview) > 0:
     ))
 # Injury timeline (strava_data/injuries.py) right below running.
 overview_panels.append(injuries.injury_panel())
-if len(df_rides) > 0:
-    overview_panels.append(dict(
-        df=df_rides,
-        stack_col='distance_km', color_col='avg_speed_kmh',
-        stack_label='Distance (km)', color_label='Avg speed (km/h)',
-        title='Cycling  |  Avg Speed',
-    ))
 if len(df_hikes) > 0:
     overview_panels.append(dict(
         df=df_hikes,
         stack_col='distance_km', color_col='weight_kg',
         stack_label='Distance (km)', color_label='Carried weight (kg)',
         title='Hiking  |  Carried Weight',
+        height=OVERVIEW_HEIGHTS['hiking'],
     ))
 if len(df_strength) > 0:
     overview_panels.append(dict(
@@ -354,13 +351,21 @@ if len(df_strength) > 0:
         stack_col='volume_k', color_col='volume_per_min',
         stack_label='Volume (×1000 kg)', color_label='Volume rate (kg/min)',
         title='Strength  |  Volume Rate',
+        height=OVERVIEW_HEIGHTS['strength'],
         color_vmax=STRENGTH_COLOR_MAX,
+    ))
+if len(df_rides) > 0:
+    overview_panels.append(dict(
+        df=df_rides,
+        stack_col='distance_km', color_col='avg_speed_kmh',
+        stack_label='Distance (km)', color_label='Avg speed (km/h)',
+        title='Cycling  |  Avg Speed',
+        height=OVERVIEW_HEIGHTS['cycling'],
     ))
 
 if overview_panels:
     vis.plot_weekly_stacked_multi(
         overview_panels,
-        panel_height=2.2,
         save_name='weekly_overview_all_sports.png',
     )
 

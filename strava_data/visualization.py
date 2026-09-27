@@ -79,7 +79,7 @@ STYLE = {
     "event_cap_height": 0.73,      # DejaVu Sans cap height / font size, to centre labels in circles
     "event_legend_fontsize": 7,
     "event_legend_rowsep": 0.5,    # points between legend rows
-    "event_line_alpha": 0.15,      # faint orange band (one bar wide) through each event week, sport panels
+    "event_line_alpha": 0.15,      # faint orange band over each main event's duration, sport panels
     "width_small": 5,
     "width_large": 12,
     "height_large": 6,
@@ -526,11 +526,41 @@ def _event_weeks(df):
     return pd.to_datetime(df['date']).dt.to_period('W-SUN').apply(lambda r: r.end_time)
 
 
+def _event_color(color):
+    """An event's circle colour: a COLORS key ('main', 'dark', ...) or any matplotlib colour."""
+    return COLORS.get(color, color)
+
+
+def _event_bands(df, last_week):
+    """(start, end) week ranges covered by the main-coloured events, overlaps merged and cut
+    off at last_week so a recent event's duration doesn't reach past the data.
+
+    Events without a ``color`` count as main, and without a ``duration`` last one week.
+    """
+    if 'color' in df.columns:
+        df = df[df['color'].map(_event_color) == COLORS["main"]]
+    if len(df) == 0:
+        return []
+    starts = _event_weeks(df)
+    durations = df['duration'] if 'duration' in df.columns else pd.Series(1, index=df.index)
+    ranges = sorted((s, min(s + pd.Timedelta(weeks=int(d) - 1), last_week))
+                    for s, d in zip(starts, durations))
+    bands = [list(ranges[0])]
+    for start, end in ranges[1:]:
+        # Merge ranges that overlap or are adjacent weeks, so the band has no gap between them.
+        if start <= bands[-1][1] + pd.Timedelta(weeks=1):
+            bands[-1][1] = max(bands[-1][1], end)
+        else:
+            bands.append([start, end])
+    return [tuple(b) for b in bands]
+
+
 def _draw_event_panel(ax, df, ylabel=None):
     """Thin timeline: an orange circle with a white label per event, on a horizontal line.
 
     df needs ``date`` and ``label`` columns, plus an optional ``description`` column that
-    fills a label → description legend on the right. Events are plotted on their week (the
+    fills a label → description legend on the right, and an optional ``color`` column (see
+    `_event_color`) for the circles; they default to orange. Events are plotted on their week (the
     same Sunday x as the bars) so they line up with the activities above and below.
     The line is the bottom spine moved to y=0, so it matches the other panels' borders and
     the month ticks hang directly off it. Circles are sized in points so they stay
@@ -552,11 +582,13 @@ def _draw_event_panel(ax, df, ylabel=None):
     radius_pt = STYLE["event_marker_size"] / 2
     font = FontProperties(family=STYLE["font_family"], weight='bold')
     fontsize = STYLE["event_fontsize"]
-    for week, label in zip(weeks, df['label']):
+    colors = (df['color'].map(_event_color) if 'color' in df.columns
+              else pd.Series(STYLE["highlight_color"], index=df.index))
+    for week, label, color in zip(weeks, df['label'], colors):
         at_week = ax.figure.dpi_scale_trans + ScaledTranslation(mdates.date2num(week), 0, ax.transData)
         ax.add_patch(Circle(
             (0, 0), radius_pt / 72, transform=at_week, snap=False, zorder=3, clip_on=False,
-            facecolor=STYLE["highlight_color"], edgecolor=STYLE["background_color"], linewidth=0.6,
+            facecolor=color, edgecolor=STYLE["background_color"], linewidth=0.6,
         ))
         # Centre the ink horizontally; vertically put the baseline half a cap height below the
         # centre (centring the ink box would shift labels with descenders or overshoot).
@@ -628,12 +660,13 @@ def plot_weekly_stacked_multi(
             df, stack_col, color_col, stack_label, color_label, title.
           Optional keys:
             color_seq, norm_center, color_format_fn, color_vmin, color_vmax,
-            color_ticks, color_invert.
+            color_ticks, color_invert, height (inches; defaults to panel_height).
           A panel with ``kind='events'`` is instead a slim timeline (see
           `_draw_event_panel`); it takes df (``date`` + ``label`` columns, optional
           ``description`` for the legend) and title (shown as the y label). It sits
           just below the panel before it; see STYLE's event_* / panel_gap for sizes.
-        panel_height (float): height in inches per panel (default 1.6).
+        panel_height (float): height in inches per sport panel without its own
+            ``height`` (default 1.6).
         width (float | None): figure width; defaults to STYLE['width_large'].
         suptitle (str | None): figure-level title above all panels.
         save_name (str | None): if set, saves the plot under SAVE_FOLDER.
@@ -644,13 +677,13 @@ def plot_weekly_stacked_multi(
 
     plt.style.use('dark_background')
     is_event = [p.get('kind') == 'events' for p in panels]
+    sport_heights = [p.get('height', panel_height) for p, ev in zip(panels, is_event) if not ev]
     if any(is_event):
         # tight_layout would give every row the same gap, sized for the tallest thing between
         # rows. Instead: panel rows interleaved with empty spacer rows whose heights are set in
         # inches once tight_layout has fixed the margins (see below).
         gaps = [STYLE["event_gap_above"] if ev else STYLE["panel_gap"] for ev in is_event[1:]]
-        n_sport = n - sum(is_event)
-        fig_height = (panel_height * n_sport + 0.6
+        fig_height = (sum(sport_heights) + 0.6
                       + sum(STYLE["event_panel_height"] + STYLE["event_gap_above"] for ev in is_event if ev))
         fig = plt.figure(figsize=(width, fig_height))
         gs = fig.add_gridspec(2 * n - 1, 1, hspace=0)
@@ -660,7 +693,8 @@ def plot_weekly_stacked_multi(
             if i < n - 1:
                 axes[-1].tick_params(labelbottom=False)
     else:
-        fig, axes = plt.subplots(n, 1, figsize=(width, panel_height * n + 0.6), sharex=True)
+        fig, axes = plt.subplots(n, 1, figsize=(width, sum(sport_heights) + 0.6), sharex=True,
+                                 gridspec_kw=dict(height_ratios=sport_heights))
         if n == 1:
             axes = [axes]
     fig.patch.set_facecolor(STYLE["background_color"])
@@ -674,10 +708,10 @@ def plot_weekly_stacked_multi(
     else:
         xmin = xmax = pd.Timestamp.now()
 
-    # Faint orange bar-wide bands through every event week in the sport panels (the event panel
-    # itself already has its circles), so it's easy to see which bars line up with an event.
-    event_weeks = sorted({w for p in panels if p.get('kind') == 'events' and len(p['df']) > 0
-                          for w in _event_weeks(p['df'])})
+    # Faint orange bands in the sport panels over the duration of every main-coloured event (the
+    # event panel itself already has its circles), so it's easy to see which bars it affected.
+    event_bands = [band for p in panels if p.get('kind') == 'events' and len(p['df']) > 0
+                   for band in _event_bands(p['df'], xmax)]
 
     panel_segments = []
     for i, panel in enumerate(panels):
@@ -685,8 +719,8 @@ def plot_weekly_stacked_multi(
         ax.set_facecolor(STYLE["background_color"])
         if panel.get('kind') != 'events':
             half_bar = pd.Timedelta(days=STYLE["bar_width"] / 2)
-            for week in event_weeks:
-                ax.axvspan(week - half_bar, week + half_bar, color=STYLE["highlight_color"],
+            for start, end in event_bands:
+                ax.axvspan(start - half_bar, end + half_bar, color=STYLE["highlight_color"],
                            alpha=STYLE["event_line_alpha"], linewidth=0, zorder=0)
 
         df = panel['df']
@@ -770,12 +804,14 @@ def plot_weekly_stacked_multi(
     plt.tight_layout()
     if any(is_event):
         # tight_layout set the outer margins; now size the rows in inches: fixed gaps and event
-        # panels, the remaining height split evenly over the sport panels.
+        # panels, the remaining height split over the sport panels in proportion to their heights.
         area = fig.get_figheight() * (fig.subplotpars.top - fig.subplotpars.bottom)
-        sport_height = (area - sum(gaps) - STYLE["event_panel_height"] * sum(is_event)) / n_sport
-        heights = [STYLE["event_panel_height"] if is_event[0] else sport_height]
-        for gap, ev in zip(gaps, is_event[1:]):
-            heights += [gap, STYLE["event_panel_height"] if ev else sport_height]
+        scale = (area - sum(gaps) - STYLE["event_panel_height"] * sum(is_event)) / sum(sport_heights)
+        sport_iter = iter(sport_heights)
+        rows = [STYLE["event_panel_height"] if ev else next(sport_iter) * scale for ev in is_event]
+        heights = [rows[0]]
+        for gap, row in zip(gaps, rows[1:]):
+            heights += [gap, row]
         gs.set_height_ratios(heights)
         # Existing axes (colorbars included, they live in sub-grids of their panel's cell) keep
         # their old positions until re-placed from their grid cells.
