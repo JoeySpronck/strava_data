@@ -52,6 +52,7 @@
       </span>
       <span class="button">Choose file</span>
     </label>
+    <p class="example">Or <button type="button" id="example">use example activity</button></p>
 
     <div id="status" class="status" hidden></div>
 
@@ -745,6 +746,18 @@ for (const type of ['dragleave', 'drop']) {
 dropzone.addEventListener('drop', (event) => {
   event.preventDefault();
   loadFile(event.dataTransfer.files[0]);
+});
+
+// A synthetic run (tests/make_example_run.py), for showing the page off without a file
+// at hand — on a phone, say. Fetched on demand and fed through the same path as an upload.
+el('example').addEventListener('click', async () => {
+  try {
+    const response = await fetch('example_run.gpx');
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await loadFile(new File([await response.blob()], 'example_run.gpx'));
+  } catch (error) {
+    setStatus(`Could not load the example activity: ${error.message}`, true);
+  }
 });
 </script>
 

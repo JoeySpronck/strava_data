@@ -78,10 +78,17 @@ function fixtureFile(name) {
 globalThis.document = { getElementById: byId, createElement: (tag) => makeElement(tag) };
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.localStorage = { getItem: () => null, setItem() {} };
-// The page reads only the file it is given; any request at all would be a regression
-// towards publishing data again.
+// The page reads only the file it is given, or the bundled synthetic example when asked
+// for it; any other request would be a regression towards publishing data again.
 let fetches = 0;
-globalThis.fetch = async () => { fetches += 1; return { ok: false, status: 404 }; };
+globalThis.fetch = async (url) => {
+  if (url === 'example_run.gpx') {
+    const bytes = readFileSync(join(ROOT, 'web', 'example_run.gpx'));
+    return { ok: true, status: 200, blob: async () => new Blob([bytes]) };
+  }
+  fetches += 1;
+  return { ok: false, status: 404 };
+};
 globalThis.Plotly = {
   PlotSchema: { get: () => ({ traces: { scatter: {}, scattermap: {} } }) },
   newPlot(node, traces, layout) { plots.set(node.id, { traces, layout }); return Promise.resolve(); },
@@ -226,7 +233,17 @@ check('says it could not read the file', /Could not read notes\.txt/.test(byId('
   byId('status').textContent);
 check('and hides the old analysis', byId('app').hidden === true);
 
-check('no network requests were made', fetches === 0, `${fetches} fetch(es)`);
+console.log('use the example activity');
+byId('example').fire('click');
+await new Promise((resolve) => setTimeout(resolve, 150));
+check('no error status', byId('status').textContent === '', byId('status').textContent);
+check('the example is analysed', byId('filename').textContent === 'example_run.gpx'
+  && byId('app').hidden === false && /FULL ACTIVITY/.test(byId('overall').innerHTML),
+  byId('filename').textContent);
+check('the example shows some drift on the default intervals',
+  parseFloat(decoupling()) > 3, decoupling());
+
+check('no other network requests were made', fetches === 0, `${fetches} fetch(es)`);
 
 if (pageErrors.length) {
   failures += 1;

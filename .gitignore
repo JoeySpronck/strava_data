@@ -218,6 +218,7 @@ secrets/*
 *.fit
 *.tcx
 !tests/fixtures/synthetic_run.gpx
+!web/example_run.gpx
 !tests/fixtures/synthetic_run.fit
 # Leftover from the archived approach that published streams (archive/decoupling-cache-sync).
 web/data/

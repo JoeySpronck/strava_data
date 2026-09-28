@@ -190,6 +190,16 @@ footer {
 .dropzone input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .dropzone .title { font-weight: 600; font-size: .95rem; }
 .dropzone .how { color: var(--muted); font-size: .82rem; }
+.example { color: var(--muted); font-size: .82rem; margin: 0 0 8px; }
+.example button {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.example button:hover { text-decoration: underline; }
 .dropzone .button {
   flex: none;
   color: var(--accent);
