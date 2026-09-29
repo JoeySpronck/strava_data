@@ -6,7 +6,7 @@ These figures update automatically via GitHub Actions. See the [main branch](htt
 
 ---
 ### 🏃🚴🥾🏋️ All-Sports Overview
-> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength). The injury timeline below running marks the week each injury started (abbreviations in its legend), with a faint orange band through that week in every sport panel.
+> Running, cycling, hiking, and strength stacked on a shared time axis. Color encodes speed (run/ride), carried weight (hike), and volume rate (strength). The injury timeline below running marks the week each injury started (abbreviations in its legend); the injuries that stopped running get a faint orange band over their duration, through the timeline and every sport panel. A letter with a small arrow on a bar segment links activities done back to back on the same day (or tagged `multisport`): the letter is the other activity's sport (**R**un, **T**rail, **H**ike, **S**trength, **B**ike), → means it came after this one, ← before, and ↔ marks the other part of a partly hiked run.
 <p align="left">
   <img src="plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" width="800">
 </p>
@@ -65,7 +65,7 @@ These figures update automatically via GitHub Actions. See the [main branch](htt
 
 ---
 ### Weekly Stacked Plots
-> Stacked barplots, showing run stacks for each week. 
+> Stacked barplots, showing run stacks for each week. Letters with arrows mark linked activities, as in the overview above.
 
 #### Color = Risk 
 > Here risk is defined by combining distance from normal distribution. Faster and longer runs contribute to higher risk, slower and shorter to lower risk.

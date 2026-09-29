@@ -65,6 +65,7 @@ STYLE = {
     # before, ↔ the other part of a split run. Horizontally centred, its top a margin below
     # the segment top (vertically centred on segments too short for that).
     "link_marker_color": COLORS["background"],
+    "link_marker_alpha": 0.7,  # letter + arrow opacity: 1 = opaque, lower lets the bar show through
     "link_marker_size": 1.3,  # letter + arrow height as a fraction of the bar width
     "link_marker_top_margin": 0.15,  # segment top to glyph top, as a fraction of the bar width
     # Event panels (e.g. injuries) in plot_weekly_stacked_multi: an orange circle with a white
@@ -79,7 +80,7 @@ STYLE = {
     "event_cap_height": 0.73,      # DejaVu Sans cap height / font size, to centre labels in circles
     "event_legend_fontsize": 7,
     "event_legend_rowsep": 0.5,    # points between legend rows
-    "event_line_alpha": 0.15,      # faint orange band over each main event's duration, sport panels
+    "event_line_alpha": 0.15,      # faint orange band over each main event's duration, all panels
     "width_small": 5,
     "width_large": 12,
     "height_large": 6,
@@ -358,11 +359,13 @@ def _draw_link_markers(ax, segments):
                      + ScaledTranslation(x, y, ax.transData))
         ax.add_patch(PathPatch(
             letter_path, transform=transform, snap=False, zorder=4, gid='link_marker',
-            facecolor=STYLE["link_marker_color"], edgecolor='none', linewidth=0,
+            facecolor=STYLE["link_marker_color"], alpha=STYLE["link_marker_alpha"],
+            edgecolor='none', linewidth=0,
         ))
         ax.add_patch(PathPatch(
             arrow_path, transform=transform, snap=False, zorder=4, gid='link_arrow',
-            facecolor=STYLE["link_marker_color"], edgecolor='none', linewidth=0,
+            facecolor=STYLE["link_marker_color"], alpha=STYLE["link_marker_alpha"],
+            edgecolor='none', linewidth=0,
         ))
     # Adding patches must not nudge the autoscaled limits the offsets were computed from.
     ax.set_xlim(xlim)
@@ -708,20 +711,20 @@ def plot_weekly_stacked_multi(
     else:
         xmin = xmax = pd.Timestamp.now()
 
-    # Faint orange bands in the sport panels over the duration of every main-coloured event (the
-    # event panel itself already has its circles), so it's easy to see which bars it affected.
+    # Faint orange bands over the duration of every main-coloured event, in the sport panels and
+    # behind the event panel's circles, so it's easy to see how long it lasted and which bars it
+    # affected.
     event_bands = [band for p in panels if p.get('kind') == 'events' and len(p['df']) > 0
                    for band in _event_bands(p['df'], xmax)]
 
     panel_segments = []
+    half_bar = pd.Timedelta(days=STYLE["bar_width"] / 2)
     for i, panel in enumerate(panels):
         ax = axes[i]
         ax.set_facecolor(STYLE["background_color"])
-        if panel.get('kind') != 'events':
-            half_bar = pd.Timedelta(days=STYLE["bar_width"] / 2)
-            for start, end in event_bands:
-                ax.axvspan(start - half_bar, end + half_bar, color=STYLE["highlight_color"],
-                           alpha=STYLE["event_line_alpha"], linewidth=0, zorder=0)
+        for start, end in event_bands:
+            ax.axvspan(start - half_bar, end + half_bar, color=STYLE["highlight_color"],
+                       alpha=STYLE["event_line_alpha"], linewidth=0, zorder=0)
 
         df = panel['df']
         if panel.get('kind') == 'events':

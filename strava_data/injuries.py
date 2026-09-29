@@ -1,7 +1,7 @@
 """Manually logged injuries / sickness, drawn as an event timeline in the all-sports overview.
 
 Add a row per injury: duration is in weeks, color a key of visualization.COLORS for the
-circle. 'main' injuries also get an orange band over their duration in the sport panels.
+circle. 'main' injuries also get an orange band over their duration in every panel.
 Shared by update_plots.py and dev/playground.ipynb.
 """
 import pandas as pd

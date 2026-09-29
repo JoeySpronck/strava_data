@@ -43,8 +43,13 @@
     <div class="section-head"><h2>🏃 🚴 🥾 🏋️ All-sports overview</h2></div>
     <p class="note">Running, cycling, hiking and strength stacked on a shared time axis. Color
       encodes speed (run/ride), carried weight (hike) and volume rate (strength). The injury
-      timeline below running marks the week each injury started (abbreviations in its legend),
-      with a faint orange band through that week in every sport panel.</p>
+      timeline below running marks the week each injury started (abbreviations in its legend);
+      the injuries that stopped running get a faint orange band over their duration, through the
+      timeline and every sport panel. A letter with a small arrow on a bar segment links
+      activities done back to back on the same day (or tagged <code>multisport</code>): the letter
+      is the other activity's sport (<strong>R</strong>un, <strong>T</strong>rail,
+      <strong>H</strong>ike, <strong>S</strong>trength, <strong>B</strong>ike), → means it came
+      after this one, ← before, and ↔ marks the other part of a partly hiked run.</p>
     <div class="card"><img src="../plots/weekly_overview_all_sports.png" alt="All-sports weekly overview" loading="lazy"></div>
   </section>
 
@@ -114,7 +119,8 @@
   <!-- Weekly stacked plots -->
   <section id="sports">
     <div class="section-head"><h2>Weekly stacked plots</h2></div>
-    <p class="note">Stacked barplots showing run stacks for each week.</p>
+    <p class="note">Stacked barplots showing run stacks for each week. Letters with arrows mark
+      linked activities, as in the overview above.</p>
 
     <div class="sub">Color = Risk</div>
     <p class="note">Risk combines distance from the normal distribution — faster and longer runs
