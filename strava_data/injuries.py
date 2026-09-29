@@ -15,7 +15,7 @@ INJURIES = [
     ('2026-04-13', 3, 'SS', 'Shin Splints', 'main'),
     ('2026-05-06', 4, 'BS', 'Bone Stress', 'main'),
     ('2026-06-21', 1, 'IT', 'IT Band', 'dark'),
-    ('2026-08-19', 6, 'BS', 'Bone Stress', 'main'),
+    ('2026-08-19', 8, 'BS', 'Bone Stress', 'main'),
     ('2026-09-02', 1, 'TT', 'Tibial Tendinopathy', 'dark'),
     # ('2026-09-14', 4, 'BS', 'Bone Stress', 'main'),
 ]
