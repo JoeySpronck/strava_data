@@ -130,6 +130,8 @@ completed_weeks = df_weekly.loc[df_weekly.index < this_week]
 recent_completed = completed_weeks.iloc[-4:]
 base_completed = recent_completed['total_volume'].max() if len(recent_completed) > 0 else 0
 
+# 25% RULE DISABLED (injury recovery) - KEEP this block; toggle USE_RECOVERY_BOOST in
+# strava_data/visualization.py to restore. Do not delete in a cleanup/rework.
 # Recovery ceiling: highest mean of any 3 consecutive recorded weeks over the last
 # half year (~26 weeks) = a previously sustained volume. Build-up grows at +25%/week
 # while staying under it; once a +25% step would reach it, growth reverts to +10%.

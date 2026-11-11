@@ -914,17 +914,32 @@ def plot_weekly(df_runs: pd.DataFrame, col='risk', save_name=None):
     else:
         raise ValueError("col must be 'distance', 'pace', 'risk', or 'elevation'")
 
+# ---------------------------------------------------------------------------------
+# KEEP THE 25% RECOVERY-BOOST CODE/TEXT BELOW (do NOT delete in a cleanup/rework!).
+# It is only switched off temporarily (user is recovering from injury and wants the
+# plain +10% progression). Set this to True to restore the +25% build-up rule; also
+# swap back the matching "+25%" descriptions in PLOTS.md, web/index.html and
+# update_plots.py (marked "25% RULE DISABLED"); dev/playground.ipynb text still
+# describes +25%.
+# ---------------------------------------------------------------------------------
+USE_RECOVERY_BOOST = False
+
+
 def grow_target(prev: float, recovery_ceiling=None) -> float:
     """Next weekly volume target.
 
-    The 10% rule mostly serves to set new limits, but when building back up you can
-    usually grow faster. So grow at +25% while a boosted step still stays under the
-    recovery ceiling (a previously sustained volume); once +25% would reach/exceed it,
-    fall back to the conservative +10%. With no ceiling, always +10%.
+    Plain 10% rule: +10% per week.
+
+    (Disabled, see USE_RECOVERY_BOOST: the 10% rule mostly serves to set new limits, but
+    when building back up you can usually grow faster. So grow at +25% while a boosted
+    step still stays under the recovery ceiling (a previously sustained volume); once
+    +25% would reach/exceed it, fall back to the conservative +10%. With no ceiling,
+    always +10%.)
     """
-    boosted = prev * 1.25
-    if recovery_ceiling is not None and boosted < recovery_ceiling:
-        return boosted
+    if USE_RECOVERY_BOOST:
+        boosted = prev * 1.25
+        if recovery_ceiling is not None and boosted < recovery_ceiling:
+            return boosted
     return prev * 1.1
 
 
@@ -1086,7 +1101,7 @@ def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float,
 
     # --- Recovery ceiling (previously sustained volume) ---
     # Below this line build-up runs at +25%/week; reaching it reverts growth to +10%.
-    ceiling_drawn = recovery_ceiling is not None and np.isfinite(recovery_ceiling)
+    ceiling_drawn = USE_RECOVERY_BOOST and recovery_ceiling is not None and np.isfinite(recovery_ceiling)
     if ceiling_drawn:
         ax.axhline(
             recovery_ceiling,
@@ -1105,7 +1120,8 @@ def plot_weekly_distance_targets(df_weekly: pd.DataFrame, week_target: float,
     ax.set_ylim(0, max(recent_weeks['total_volume'].max(), max(t for _, t in targets), ceiling_for_ylim) * 1.2)
     ax.set_ylabel('Weekly Distance (km)', color=STYLE["text_color"])
     ax.set_title(
-        f'Weekly Running Volume Progression (+10–25% Growth Target)',
+        # 25% RULE DISABLED (keep!): f'Weekly Running Volume Progression (+10–25% Growth Target)',
+        'Weekly Running Volume Progression (+10% Growth Target)',
         color=STYLE["highlight_color"],
         weight=STYLE["title_weight"]
     )

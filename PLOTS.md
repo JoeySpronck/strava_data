@@ -31,7 +31,10 @@ These figures update automatically via GitHub Actions. See the [main branch](htt
 
 ---
 ### 📈 Weekly volume progression
+> Based on the 10% rule: the target grows +10% per week. The next unreached target (this or next week) is used as the target for the following plots.
+<!-- 25% RULE DISABLED (injury recovery) - KEEP this text, do not delete in cleanup; restore with USE_RECOVERY_BOOST in strava_data/visualization.py:
 > Based on the 10% rule, but build-up grows at +25%/week while the target stays below the dark-gray dashed line — the highest 3-consecutive-week average volume of the last half year (a previously sustained level). Once a +25% step would reach that line, growth reverts to +10%. The next unreached target (this or next week) is used as the target for the following plots.
+-->
 <p align="left">
   <img src="plots/weekly_distance_targets.png" alt="Weekly distance targets" width="500">
 </p>
